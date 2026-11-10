@@ -1,12 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Package, Plus, Search } from 'lucide-react';
+import { Package, Plus, ScanLine, Search } from 'lucide-react';
 import { createProduct, errorMessage, getCategories, getProducts, initAuth } from '@/lib/api';
 import { formatNumber, formatPct, formatRupiah } from '@/lib/format';
 import type { Category, Product } from '@/lib/types';
 import { StockBadge } from '@/components/StockBadge';
-import { Button } from '@/components/ui/button';
+import BarcodeScanner from '@/components/BarcodeScanner';
+import { useAuth } from '@/components/auth';
+import { canManageStore } from '@/lib/roles';
+import { Button, IconButton } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select } from '@/components/ui/field';
@@ -22,7 +25,9 @@ function AddProductDialog({
   onClose,
   categories,
   onCreated,
+  initialSku,
 }: {
+  initialSku?: string;
   open: boolean;
   onClose: () => void;
   categories: Category[];
@@ -32,6 +37,13 @@ function AddProductDialog({
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  // Setiap kali dialog dibuka, mulai dari form kosong (dengan SKU hasil scan bila ada).
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setForm({ ...emptyForm, sku: initialSku ?? '' });
+  }
   const set = (k: keyof typeof emptyForm) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const price = Number(form.selling_price) || 0;
@@ -91,8 +103,13 @@ function AddProductDialog({
           <Input id="p-name" required value={form.name} onChange={set('name')} placeholder="Beras Premium 5kg" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="SKU" htmlFor="p-sku" required>
-            <Input id="p-sku" required value={form.sku} onChange={set('sku')} placeholder="BRS-5KG" />
+          <Field label="SKU / barcode" htmlFor="p-sku" required>
+            <div className="flex gap-1.5">
+              <Input id="p-sku" required value={form.sku} onChange={set('sku')} placeholder="Scan atau ketik" className="min-w-0 flex-1" />
+              <IconButton aria-label="Scan barcode untuk SKU" title="Scan barcode" onClick={() => setScanning(true)} className="size-9 border border-line">
+                <ScanLine />
+              </IconButton>
+            </div>
           </Field>
           <Field label="Satuan" htmlFor="p-unit" required>
             <Input id="p-unit" required value={form.unit} onChange={set('unit')} placeholder="pcs, kg, sak" />
@@ -120,6 +137,12 @@ function AddProductDialog({
           <Input id="p-stock" type="number" min={0} value={form.current_stock} onChange={set('current_stock')} />
         </Field>
       </form>
+      <BarcodeScanner
+        open={scanning}
+        onClose={() => setScanning(false)}
+        onScan={(code) => setForm((f) => ({ ...f, sku: code }))}
+        title="Scan barcode produk"
+      />
     </Dialog>
   );
 }
@@ -132,6 +155,30 @@ export default function ProductsPage() {
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [adding, setAdding] = useState(false);
+  const [newSku, setNewSku] = useState<string | undefined>();
+  const [scanning, setScanning] = useState(false);
+  const toast = useToast();
+  const { role } = useAuth();
+  const canManage = canManageStore(role);
+
+  const openAdd = (sku?: string) => {
+    setNewSku(sku);
+    setAdding(true);
+  };
+
+  /** Scan di halaman produk: cari produknya, atau tawarkan untuk mendaftarkan barcode baru. */
+  const onScan = (code: string) => {
+    const found = products.find((p) => p.sku.toLowerCase() === code.toLowerCase());
+    if (found) {
+      setQuery(found.sku);
+      setCategoryFilter('');
+    } else if (canManage) {
+      toast({ tone: 'success', title: 'Barcode baru', description: 'Lengkapi data untuk mendaftarkan produk ini.' });
+      openAdd(code);
+    } else {
+      toast({ tone: 'error', title: 'Barcode belum terdaftar', description: code });
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -168,9 +215,11 @@ export default function ProductsPage() {
         title="Produk"
         description={loading ? 'Daftar produk dan harga' : `${formatNumber(products.length)} produk terdaftar`}
         actions={
-          <Button onClick={() => setAdding(true)}>
-            <Plus /> Tambah produk
-          </Button>
+          canManage && (
+            <Button onClick={() => openAdd()}>
+              <Plus /> Tambah produk
+            </Button>
+          )
         }
       />
 
@@ -178,15 +227,20 @@ export default function ProductsPage() {
 
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-          <Input
-            type="search"
-            aria-label="Cari produk"
-            placeholder="Cari nama atau SKU"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            leading={<Search />}
-            className="sm:w-72"
-          />
+          <div className="flex gap-2 sm:w-80">
+            <Input
+              type="search"
+              aria-label="Cari produk"
+              placeholder="Cari nama atau SKU"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              leading={<Search />}
+              className="min-w-0 flex-1"
+            />
+            <Button variant="secondary" onClick={() => setScanning(true)} aria-label="Scan barcode">
+              <ScanLine />
+            </Button>
+          </div>
           <Select aria-label="Filter kategori" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="sm:w-52">
             <option value="">Semua kategori</option>
             {categories.map((c) => (
@@ -211,8 +265,9 @@ export default function ProductsPage() {
               title={products.length === 0 ? 'Belum ada produk' : 'Produk tidak ditemukan'}
               description={products.length === 0 ? 'Tambahkan produk pertama atau import dari file CSV.' : 'Coba kata kunci atau kategori lain.'}
               action={
-                products.length === 0 && (
-                  <Button onClick={() => setAdding(true)}>
+                products.length === 0 &&
+                canManage && (
+                  <Button onClick={() => openAdd()}>
                     <Plus /> Tambah produk
                   </Button>
                 )
@@ -226,8 +281,8 @@ export default function ProductsPage() {
                 <TH>Produk</TH>
                 <TH>Kategori</TH>
                 <TH align="right">Harga jual</TH>
-                <TH align="right">HPP</TH>
-                <TH align="right">Margin</TH>
+                {canManage && <TH align="right">HPP</TH>}
+                {canManage && <TH align="right">Margin</TH>}
                 <TH align="right">Stok</TH>
               </tr>
             </THead>
@@ -244,12 +299,16 @@ export default function ProductsPage() {
                     <TD align="right" className="font-medium">
                       {formatRupiah(p.selling_price)}
                     </TD>
-                    <TD align="right" className="text-ink-muted">
-                      {formatRupiah(p.current_hpp)}
-                    </TD>
-                    <TD align="right" className={margin < 0 ? 'text-red-700' : 'text-ink-muted'}>
-                      {formatPct(margin)}
-                    </TD>
+                    {canManage && (
+                      <TD align="right" className="text-ink-muted">
+                        {formatRupiah(p.current_hpp)}
+                      </TD>
+                    )}
+                    {canManage && (
+                      <TD align="right" className={margin < 0 ? 'text-red-700' : 'text-ink-muted'}>
+                        {formatPct(margin)}
+                      </TD>
+                    )}
                     <TD align="right">
                       <StockBadge stock={p.current_stock} unit={p.unit} />
                     </TD>
@@ -265,8 +324,10 @@ export default function ProductsPage() {
         open={adding}
         onClose={() => setAdding(false)}
         categories={categories}
+        initialSku={newSku}
         onCreated={(p) => setProducts((list) => [p, ...list])}
       />
+      <BarcodeScanner open={scanning} onClose={() => setScanning(false)} onScan={onScan} title="Cari dengan barcode" />
     </Page>
   );
 }
