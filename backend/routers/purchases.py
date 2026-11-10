@@ -5,19 +5,13 @@ from typing import List
 import models
 import schemas
 from database import get_db
-from core.dependencies import get_current_user
+from core.dependencies import MANAGE_ROLES, get_current_user, require_member
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}", tags=["purchases"])
 
 @router.post("/purchases", response_model=schemas.PurchaseResponse)
 def create_purchase(workspace_id: int, purchase: schemas.PurchaseCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
         
     total_amount = 0.0
     
@@ -88,13 +82,7 @@ def create_purchase(workspace_id: int, purchase: schemas.PurchaseCreate, db: Ses
 
 @router.get("/purchases", response_model=List[schemas.PurchaseResponse])
 def get_purchases(workspace_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
         
     purchases = db.query(models.Purchase).filter(
         models.Purchase.workspace_id == workspace_id

@@ -5,19 +5,13 @@ from typing import List
 import models
 import schemas
 from database import get_db
-from core.dependencies import get_current_user
+from core.dependencies import MANAGE_ROLES, get_current_user, require_member
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/inventory", tags=["inventory"])
 
 @router.post("/adjust")
 def adjust_inventory(workspace_id: int, product_id: int, adjust: schemas.InventoryAdjust, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
         
     product = db.query(models.Product).filter(
         models.Product.id == product_id,

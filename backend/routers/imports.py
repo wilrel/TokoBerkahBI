@@ -9,7 +9,7 @@ from typing import List
 import models
 import schemas
 from database import get_db
-from core.dependencies import get_current_user
+from core.dependencies import MANAGE_ROLES, get_current_user, require_member
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/imports", tags=["imports"])
 
@@ -18,13 +18,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 @router.post("/upload", response_model=schemas.UploadPreviewResponse)
 async def upload_file(workspace_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
 
     # Validate extension
     if not file.filename.endswith(('.csv', '.xlsx')):
@@ -69,6 +63,7 @@ async def upload_file(workspace_id: int, file: UploadFile = File(...), db: Sessi
 
 @router.post("/{job_id}/validate", response_model=schemas.ImportJobResponse)
 def validate_mapping(workspace_id: int, job_id: int, mapping: schemas.ColumnMapping, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
     job = db.query(models.ImportJob).filter(models.ImportJob.id == job_id, models.ImportJob.workspace_id == workspace_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -150,6 +145,7 @@ def validate_mapping(workspace_id: int, job_id: int, mapping: schemas.ColumnMapp
 
 @router.post("/{job_id}/confirm")
 def confirm_import(workspace_id: int, job_id: int, mapping: schemas.ColumnMapping, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
     job = db.query(models.ImportJob).filter(models.ImportJob.id == job_id, models.ImportJob.workspace_id == workspace_id).first()
     if not job or job.status != models.ImportJobStatus.CONFIRMED:
         raise HTTPException(status_code=400, detail="Job not ready for confirmation")
@@ -237,5 +233,6 @@ def confirm_import(workspace_id: int, job_id: int, mapping: schemas.ColumnMappin
 
 @router.get("", response_model=List[schemas.ImportJobResponse])
 def get_imports(workspace_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
     jobs = db.query(models.ImportJob).filter(models.ImportJob.workspace_id == workspace_id).order_by(models.ImportJob.created_at.desc()).all()
     return jobs
