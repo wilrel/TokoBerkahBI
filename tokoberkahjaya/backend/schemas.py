@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
-from datetime import datetime
+from datetime import date, datetime
 from models import RoleEnum
 
 class UserBase(BaseModel):
@@ -196,3 +196,95 @@ class PurchaseResponse(BaseModel):
 class InventoryAdjust(BaseModel):
     actual_stock: int
     reason: str
+
+# ---------------------------------------------------------------- Reports
+
+class SalesSummary(BaseModel):
+    revenue: float
+    cogs: float
+    gross_profit: float
+    gross_margin_pct: float
+    transaction_count: int
+    items_sold: int
+    avg_basket: float
+
+class SummaryChange(BaseModel):
+    revenue: Optional[float] = None
+    gross_profit: Optional[float] = None
+    transaction_count: Optional[float] = None
+    avg_basket: Optional[float] = None
+
+class DailyPoint(BaseModel):
+    date: date
+    revenue: float
+    cogs: float
+    gross_profit: float
+    transaction_count: int
+
+class PaymentMethodSummary(BaseModel):
+    method: str
+    amount: float
+    transaction_count: int
+
+class ProductSales(BaseModel):
+    product_id: int
+    sku: str
+    name: str
+    unit: str
+    category: str
+    quantity: int
+    revenue: float
+    cogs: float
+    gross_profit: float
+    gross_margin_pct: float
+
+class LowStockItem(BaseModel):
+    product_id: int
+    sku: str
+    name: str
+    unit: str
+    current_stock: int
+
+class InventorySnapshot(BaseModel):
+    active_products: int
+    stock_value_at_cost: float
+    stock_value_at_price: float
+    low_stock_threshold: int
+    low_stock_count: int
+    low_stock: List[LowStockItem]
+    unsold_in_period_count: int
+
+class DashboardResponse(BaseModel):
+    start_date: date
+    end_date: date
+    summary: SalesSummary
+    previous_summary: SalesSummary
+    change_pct: SummaryChange
+    daily: List[DailyPoint]
+    payment_methods: List[PaymentMethodSummary]
+    top_products: List[ProductSales]
+    inventory: InventorySnapshot
+
+class CategoryProfit(BaseModel):
+    category: str
+    quantity: int
+    revenue: float
+    cogs: float
+    gross_profit: float
+    gross_margin_pct: float
+
+class ProfitLossResponse(BaseModel):
+    start_date: date
+    end_date: date
+    revenue: float
+    cogs: float
+    gross_profit: float
+    gross_margin_pct: float
+    stock_loss: float
+    stock_gain: float
+    stock_adjustment: float
+    profit_after_adjustment: float
+    transaction_count: int
+    items_sold: int
+    by_category: List[CategoryProfit]
+    by_product: List[ProductSales]
