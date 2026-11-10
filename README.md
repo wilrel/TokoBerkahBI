@@ -40,10 +40,17 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Tanpa `DATABASE_URL`, backend memakai SQLite (`backend/tokoberkahjaya.db`). Isi data awal (akun `admin@toko.com` / `password` dan beberapa produk contoh):
+Tanpa `DATABASE_URL`, backend memakai SQLite (`backend/tokoberkahjaya.db`). Buat tabel database dulu:
 
 ```bash
-python seed.py && python seed_products.py
+alembic upgrade head
+```
+
+Lalu isi data awal (akun `admin@toko.com` / `password` dan beberapa produk contoh):
+
+```bash
+python seed.py
+python seed_products.py
 ```
 
 Jalankan API di http://localhost:8000 (dokumentasi di `/docs`):

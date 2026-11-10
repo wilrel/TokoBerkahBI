@@ -1,176 +1,249 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { getProducts, adjustInventory, initAuth } from '@/lib/api';
-import { Settings2, X, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Boxes, ClipboardCheck, Search } from 'lucide-react';
+import { adjustInventory, errorMessage, getProducts, initAuth } from '@/lib/api';
+import { formatNumber, formatRupiah } from '@/lib/format';
+import type { Product } from '@/lib/types';
+import { cn } from '@/lib/cn';
+import { LOW_STOCK, StockBadge } from '@/components/StockBadge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
+import { Field, Input, Select } from '@/components/ui/field';
+import { Alert, EmptyState, Skeleton } from '@/components/ui/feedback';
+import { Page, PageHeader } from '@/components/ui/page';
+import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
+import { useToast } from '@/components/ui/toast';
 
-export default function InventoryPage() {
-  const [products, setProducts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [adjustingProduct, setAdjustingProduct] = useState<any | null>(null);
-  const [actualStock, setActualStock] = useState<number | ''>('');
+type StockFilter = 'all' | 'low' | 'out';
+
+function OpnameDialog({ product, onClose, onSaved }: { product: Product | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [actual, setActual] = useState('');
   const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
-
-  async function loadProducts() {
-    setLoading(true);
-    await initAuth();
-    try {
-      const data = await getProducts();
-      setProducts(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+  // Isi ulang form setiap kali dialog dibuka untuk produk lain.
+  const [forId, setForId] = useState<number | null>(null);
+  if (product && product.id !== forId) {
+    setForId(product.id);
+    setActual(String(product.current_stock));
+    setReason('');
+    setError(null);
   }
 
-  const handleAdjustSubmit = async (e: React.FormEvent) => {
+  const actualNum = actual === '' ? null : Number(actual);
+  const diff = product && actualNum != null ? actualNum - product.current_stock : 0;
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adjustingProduct || actualStock === '') return;
-    if (actualStock === adjustingProduct.current_stock) {
-      alert("Actual stock is same as system stock. No adjustment needed.");
-      return;
-    }
-    
-    setSubmitting(true);
+    if (!product || actualNum == null || diff === 0) return;
+    setSaving(true);
+    setError(null);
     try {
-      await adjustInventory(adjustingProduct.id, {
-        actual_stock: Number(actualStock),
-        reason: reason || 'Stock Opname'
-      });
-      setAdjustingProduct(null);
-      setActualStock('');
-      setReason('');
-      await loadProducts();
-    } catch (e: any) {
-      alert("Failed to adjust inventory: " + (e.response?.data?.detail || e.message));
+      await adjustInventory(product.id, { actual_stock: actualNum, reason: reason.trim() || 'Stock opname' });
+      toast({ tone: 'success', title: 'Stok diperbarui', description: `${product.name}: ${diff > 0 ? '+' : ''}${diff} ${product.unit}` });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err, 'Gagal menyimpan penyesuaian stok.'));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
   return (
-    <div className="p-8 relative">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Inventory & Stock Opname</h1>
-        <p className="text-gray-500 text-sm mt-1">Manage physical stock discrepancies and monitor current asset value.</p>
-      </div>
-
-      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product Name</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">System Stock</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current HPP</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Asset Value</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {loading ? (
-              <tr><td colSpan={6} className="px-6 py-4 text-center text-gray-500">Loading...</td></tr>
-            ) : products.length === 0 ? (
-              <tr><td colSpan={6} className="px-6 py-4 text-center text-gray-500">No products found.</td></tr>
-            ) : (
-              products.map((p) => {
-                const assetValue = p.current_stock * p.current_hpp;
-                return (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.sku}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{p.name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2.5 py-0.5 rounded-full text-sm font-medium ${p.current_stock <= 5 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
-                        {p.current_stock} {p.unit}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      Rp {p.current_hpp.toLocaleString('id-ID')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                      Rp {assetValue.toLocaleString('id-ID')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button 
-                        onClick={() => { setAdjustingProduct(p); setActualStock(p.current_stock); }}
-                        className="text-indigo-600 hover:text-indigo-900 flex items-center justify-end w-full"
-                      >
-                        <Settings2 className="w-4 h-4 mr-1" /> Adjust
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Adjust Modal */}
-      {adjustingProduct && (
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-              <h3 className="text-lg font-medium text-gray-900">Stock Opname</h3>
-              <button onClick={() => setAdjustingProduct(null)} className="text-gray-400 hover:text-gray-500">
-                <X className="w-5 h-5" />
-              </button>
+    <Dialog
+      open={!!product}
+      onClose={onClose}
+      title="Stock opname"
+      description={product ? `${product.name} · ${product.sku}` : undefined}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Batal
+          </Button>
+          <Button type="submit" form="opname" loading={saving} disabled={actualNum == null || diff === 0}>
+            Simpan penyesuaian
+          </Button>
+        </>
+      }
+    >
+      {product && (
+        <form id="opname" onSubmit={submit} className="space-y-4">
+          {error && <Alert>{error}</Alert>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-line bg-zinc-50/70 px-3.5 py-3">
+              <p className="text-xs text-ink-subtle">Stok di sistem</p>
+              <p className="num mt-1 text-lg font-semibold text-ink">
+                {formatNumber(product.current_stock)} <span className="text-sm font-normal text-ink-subtle">{product.unit}</span>
+              </p>
             </div>
-            <form onSubmit={handleAdjustSubmit} className="px-6 py-4">
-              <div className="mb-4">
-                <p className="text-sm text-gray-500 mb-1">Product</p>
-                <p className="font-medium text-gray-900">{adjustingProduct.name} ({adjustingProduct.sku})</p>
-              </div>
-              <div className="mb-4">
-                <p className="text-sm text-gray-500 mb-1">System Stock</p>
-                <p className="font-bold text-gray-900">{adjustingProduct.current_stock} {adjustingProduct.unit}</p>
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Actual Physical Stock</label>
-                <input 
-                  type="number" min="0" required
-                  className="w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500"
-                  value={actualStock}
-                  onChange={(e) => setActualStock(e.target.value ? Number(e.target.value) : '')}
-                />
-              </div>
-              
-              {actualStock !== '' && Number(actualStock) !== adjustingProduct.current_stock && (
-                <div className={`mb-4 p-3 rounded-md flex text-sm ${Number(actualStock) < adjustingProduct.current_stock ? 'bg-red-50 text-red-800' : 'bg-yellow-50 text-yellow-800'}`}>
-                  <AlertTriangle className="w-5 h-5 mr-2 flex-shrink-0" />
-                  <p>
-                    Difference: <strong>{Number(actualStock) - adjustingProduct.current_stock} {adjustingProduct.unit}</strong>. 
-                    This will be recorded as an adjustment.
-                  </p>
-                </div>
+            <div
+              className={cn(
+                'rounded-lg border px-3.5 py-3',
+                diff < 0 ? 'border-red-200 bg-red-50' : diff > 0 ? 'border-emerald-200 bg-emerald-50' : 'border-line bg-zinc-50/70',
               )}
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reason (Optional)</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Broken, Expired, Stock Opname 2026"
-                  className="w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                />
-              </div>
-              <div className="flex justify-end space-x-3">
-                <button type="button" onClick={() => setAdjustingProduct(null)} className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={submitting || actualStock === '' || Number(actualStock) === adjustingProduct.current_stock} className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300">
-                  {submitting ? 'Saving...' : 'Confirm Adjustment'}
-                </button>
-              </div>
-            </form>
+            >
+              <p className="text-xs text-ink-subtle">Selisih</p>
+              <p className={cn('num mt-1 text-lg font-semibold', diff < 0 ? 'text-red-700' : diff > 0 ? 'text-emerald-700' : 'text-ink')}>
+                {diff > 0 ? '+' : ''}
+                {formatNumber(diff)} <span className="text-sm font-normal text-ink-subtle">{product.unit}</span>
+              </p>
+            </div>
           </div>
-        </div>
+          <Field
+            label="Stok fisik sebenarnya"
+            htmlFor="actual"
+            required
+            hint={diff !== 0 ? `Nilai selisih ${formatRupiah(Math.abs(diff) * product.current_hpp)} (dihitung dari HPP)` : 'Hitung barang di rak dan gudang.'}
+          >
+            <Input id="actual" type="number" min={0} required autoFocus value={actual} onChange={(e) => setActual(e.target.value)} />
+          </Field>
+          <Field label="Alasan" htmlFor="reason">
+            <Input id="reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Rusak, kedaluwarsa, hilang, opname bulanan" />
+          </Field>
+        </form>
       )}
-    </div>
+    </Dialog>
+  );
+}
+
+export default function InventoryPage() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<StockFilter>('all');
+  const [adjusting, setAdjusting] = useState<Product | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      await initAuth();
+      setProducts(await getProducts());
+    } catch (e) {
+      setError(errorMessage(e, 'Gagal memuat data stok.'));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- memuat data awal dari API
+    load();
+  }, [load]);
+
+  const totals = useMemo(
+    () => ({
+      value: products.reduce((a, p) => a + Math.max(p.current_stock, 0) * p.current_hpp, 0),
+      low: products.filter((p) => p.current_stock > 0 && p.current_stock <= LOW_STOCK).length,
+      out: products.filter((p) => p.current_stock <= 0).length,
+    }),
+    [products],
+  );
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return products.filter((p) => {
+      if (q && !p.name.toLowerCase().includes(q) && !p.sku.toLowerCase().includes(q)) return false;
+      if (filter === 'low') return p.current_stock > 0 && p.current_stock <= LOW_STOCK;
+      if (filter === 'out') return p.current_stock <= 0;
+      return true;
+    });
+  }, [products, query, filter]);
+
+  return (
+    <Page>
+      <PageHeader title="Stok & opname" description="Pantau persediaan dan catat selisih stok fisik" />
+
+      {error && <Alert className="mb-6">{error}</Alert>}
+
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {[
+          ['Nilai persediaan', formatRupiah(totals.value), 'Dihitung dari HPP'],
+          ['Stok menipis', formatNumber(totals.low), `${LOW_STOCK} unit atau kurang`],
+          ['Stok habis', formatNumber(totals.out), 'Tidak bisa dijual'],
+        ].map(([label, value, hint]) => (
+          <Card key={label} className="p-5">
+            <p className="text-sm text-ink-subtle">{label}</p>
+            {loading ? <Skeleton className="mt-3 h-7 w-32" /> : <p className="num mt-2 text-2xl font-semibold tracking-tight">{value}</p>}
+            <p className="mt-1 text-xs text-ink-subtle">{hint}</p>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="overflow-hidden">
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+          <Input
+            type="search"
+            aria-label="Cari produk"
+            placeholder="Cari nama atau SKU"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            leading={<Search />}
+            className="sm:w-72"
+          />
+          <Select aria-label="Filter stok" value={filter} onChange={(e) => setFilter(e.target.value as StockFilter)} className="sm:w-48">
+            <option value="all">Semua stok</option>
+            <option value="low">Stok menipis</option>
+            <option value="out">Stok habis</option>
+          </Select>
+        </div>
+
+        {loading ? (
+          <div className="space-y-3 border-t border-line p-5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="border-t border-line">
+            <EmptyState icon={Boxes} title="Tidak ada produk" description="Tidak ada produk yang cocok dengan filter ini." />
+          </div>
+        ) : (
+          <Table>
+            <THead>
+              <tr>
+                <TH>Produk</TH>
+                <TH align="right">Stok sistem</TH>
+                <TH align="right">HPP</TH>
+                <TH align="right">Nilai stok</TH>
+                <TH align="right">
+                  <span className="sr-only">Aksi</span>
+                </TH>
+              </tr>
+            </THead>
+            <TBody>
+              {rows.map((p) => (
+                <TR key={p.id}>
+                  <TD>
+                    <div className="font-medium">{p.name}</div>
+                    <div className="text-xs text-ink-subtle">{p.sku}</div>
+                  </TD>
+                  <TD align="right">
+                    <StockBadge stock={p.current_stock} unit={p.unit} />
+                  </TD>
+                  <TD align="right" className="text-ink-muted">
+                    {formatRupiah(p.current_hpp)}
+                  </TD>
+                  <TD align="right" className="font-medium">
+                    {formatRupiah(Math.max(p.current_stock, 0) * p.current_hpp)}
+                  </TD>
+                  <TD align="right">
+                    <Button variant="secondary" size="sm" onClick={() => setAdjusting(p)}>
+                      <ClipboardCheck /> Opname
+                    </Button>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        )}
+      </Card>
+
+      <OpnameDialog product={adjusting} onClose={() => setAdjusting(null)} onSaved={load} />
+    </Page>
   );
 }

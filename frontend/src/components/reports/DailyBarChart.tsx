@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Card } from '@/components/ui/card';
 import { formatDateLabel, formatNumber, formatRupiah, formatRupiahShort } from '@/lib/format';
 
 export type DailyPoint = {
@@ -79,33 +80,39 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
   const labelEvery = Math.max(1, Math.ceil(data.length / Math.max(1, Math.floor(innerW / 56))));
   const hovered = hover != null ? data[hover] : null;
   const metricLabel = METRICS.find((m) => m.key === metric)!.label;
+  const total = data.reduce((a, d) => a + d[metric], 0);
 
   return (
-    <div className="bg-white rounded-lg shadow border border-gray-200 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h2 className="text-base font-semibold text-gray-900">{metricLabel} harian</h2>
+    <Card className="p-5">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[15px] font-semibold tracking-tight text-ink">{metricLabel} harian</h2>
+          <p className="mt-0.5 text-sm text-ink-subtle">
+            Total <span className="num font-medium text-ink">{formatRupiah(total)}</span> dalam {data.length} hari
+          </p>
+        </div>
         <div className="flex gap-2">
-          <div className="inline-flex rounded-md border border-gray-200 p-0.5" role="group" aria-label="Metrik">
+          <div className="inline-flex h-8 items-center rounded-lg bg-zinc-100 p-0.5" role="group" aria-label="Metrik">
             {METRICS.map((m) => (
               <button
                 key={m.key}
                 type="button"
                 aria-pressed={metric === m.key}
                 onClick={() => setMetric(m.key)}
-                className={`px-2.5 py-1 text-xs rounded ${metric === m.key ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                className={`h-7 rounded-md px-2.5 text-xs transition-colors ${metric === m.key ? 'bg-white font-medium text-ink shadow-[var(--shadow-card)]' : 'text-ink-muted hover:text-ink'}`}
               >
                 {m.label}
               </button>
             ))}
           </div>
-          <div className="inline-flex rounded-md border border-gray-200 p-0.5" role="group" aria-label="Tampilan">
+          <div className="inline-flex h-8 items-center rounded-lg bg-zinc-100 p-0.5" role="group" aria-label="Tampilan">
             {(['chart', 'table'] as const).map((v) => (
               <button
                 key={v}
                 type="button"
                 aria-pressed={view === v}
                 onClick={() => setView(v)}
-                className={`px-2.5 py-1 text-xs rounded ${view === v ? 'bg-gray-900 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                className={`h-7 rounded-md px-2.5 text-xs transition-colors ${view === v ? 'bg-white font-medium text-ink shadow-[var(--shadow-card)]' : 'text-ink-muted hover:text-ink'}`}
               >
                 {v === 'chart' ? 'Grafik' : 'Tabel'}
               </button>
@@ -117,7 +124,7 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
       {view === 'table' ? (
         <div className="max-h-72 overflow-y-auto">
           <table className="min-w-full text-sm">
-            <thead className="sticky top-0 bg-white text-xs uppercase text-gray-500">
+            <thead className="sticky top-0 border-b border-line bg-surface text-xs text-ink-subtle">
               <tr>
                 <th className="py-2 text-left font-medium">Tanggal</th>
                 <th className="py-2 text-right font-medium">Omzet</th>
@@ -126,14 +133,14 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
                 <th className="py-2 text-right font-medium">Transaksi</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 tabular-nums whitespace-nowrap">
+            <tbody className="num divide-y divide-line whitespace-nowrap">
               {data.map((d) => (
                 <tr key={d.date}>
-                  <td className="py-1.5 text-gray-700">{formatDateLabel(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</td>
-                  <td className="py-1.5 text-right text-gray-900">{formatRupiah(d.revenue)}</td>
-                  <td className="py-1.5 text-right text-gray-600">{formatRupiah(d.cogs)}</td>
-                  <td className="py-1.5 text-right text-gray-900">{formatRupiah(d.gross_profit)}</td>
-                  <td className="py-1.5 text-right text-gray-600">{formatNumber(d.transaction_count)}</td>
+                  <td className="py-2 text-ink-muted">{formatDateLabel(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</td>
+                  <td className="py-2 text-right text-ink">{formatRupiah(d.revenue)}</td>
+                  <td className="py-2 text-right text-ink-subtle">{formatRupiah(d.cogs)}</td>
+                  <td className="py-2 text-right text-ink">{formatRupiah(d.gross_profit)}</td>
+                  <td className="py-2 text-right text-ink-subtle">{formatNumber(d.transaction_count)}</td>
                 </tr>
               ))}
             </tbody>
@@ -149,10 +156,10 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
                   x2={width - PAD.right}
                   y1={y(t)}
                   y2={y(t)}
-                  stroke={t === 0 ? '#9ca3af' : '#e5e7eb'}
+                  stroke={t === 0 ? '#d4d4d8' : '#f0f0f2'}
                   strokeWidth={1}
                 />
-                <text x={PAD.left - 8} y={y(t)} dy="0.32em" textAnchor="end" className="fill-gray-500" fontSize={11}>
+                <text x={PAD.left - 8} y={y(t)} dy="0.32em" textAnchor="end" className="fill-zinc-500" fontSize={11}>
                   {formatRupiahShort(t)}
                 </text>
               </g>
@@ -187,7 +194,7 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
                       x={PAD.left + i * band + band / 2}
                       y={HEIGHT - 8}
                       textAnchor="middle"
-                      className="fill-gray-500"
+                      className="fill-zinc-500"
                       fontSize={11}
                     >
                       {formatDateLabel(d.date)}
@@ -200,14 +207,14 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
 
           {hovered && hover != null && (
             <div
-              className="pointer-events-none absolute z-10 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg"
+              className="pointer-events-none absolute z-10 rounded-lg border border-line bg-surface px-3 py-2.5 text-xs shadow-[var(--shadow-pop)]"
               style={{
                 left: Math.min(Math.max(PAD.left + hover * band + band / 2 - 90, 0), width - 180),
                 top: 0,
                 width: 180,
               }}
             >
-              <p className="font-medium text-gray-900 mb-1">
+              <p className="font-medium text-ink mb-1">
                 {formatDateLabel(hovered.date, { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
               <dl className="space-y-0.5 tabular-nums">
@@ -218,8 +225,8 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
                   ['Transaksi', formatNumber(hovered.transaction_count)],
                 ].map(([k, val]) => (
                   <div key={k} className="flex justify-between gap-2">
-                    <dt className="text-gray-500">{k}</dt>
-                    <dd className="font-semibold text-gray-900">{val}</dd>
+                    <dt className="text-ink-subtle">{k}</dt>
+                    <dd className="font-semibold text-ink">{val}</dd>
                   </div>
                 ))}
               </dl>
@@ -227,6 +234,6 @@ export default function DailyBarChart({ data }: { data: DailyPoint[] }) {
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
