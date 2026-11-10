@@ -56,6 +56,7 @@ def test_owner_adds_cashier_who_can_login_and_sell_but_not_manage():
     res = add(h, ws, "Kasir@Toko.com", "CASHIER", name="Andi")
     assert res.status_code == 201
     assert res.json()["email"] == "kasir@toko.com" and res.json()["name"] == "Andi"
+    assert res.json()["new_account"] is True
 
     kasir = login("kasir@toko.com")
     assert client.get(f"/api/workspaces/{ws}/products", headers=kasir).status_code == 200
@@ -71,6 +72,7 @@ def test_existing_account_is_added_without_password():
     client.post("/api/auth/register", json={"email": "budi@toko.com", "password": "rahasia1"})
     res = client.post(f"/api/workspaces/{ws}/members", headers=h, json={"email": "budi@toko.com", "role": "MANAGER"})
     assert res.status_code == 201
+    assert res.json()["new_account"] is False
     assert add(h, ws, "budi@toko.com", "CASHIER").status_code == 400  # sudah anggota
 
 

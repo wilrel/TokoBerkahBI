@@ -24,8 +24,9 @@ router = APIRouter(prefix="/api/workspaces/{workspace_id}/members", tags=["membe
 OWNER = models.RoleEnum.OWNER
 
 
-def _to_response(member: models.WorkspaceMember, user: models.User) -> dict:
+def _to_response(member: models.WorkspaceMember, user: models.User, new_account: bool = False) -> dict:
     return {
+        "new_account": new_account,
         "user_id": user.id,
         "email": user.email,
         "name": user.name,
@@ -82,6 +83,7 @@ def add_member(
 
     email = body.email.strip().lower()
     user = db.query(models.User).filter(models.User.email == email).first()
+    new_account = user is None
     if user is None:
         if not body.password:
             raise HTTPException(status_code=400, detail="Password awal wajib diisi untuk akun baru")
@@ -97,7 +99,7 @@ def add_member(
     db.add(member)
     db.commit()
     db.refresh(member)
-    return _to_response(member, user)
+    return _to_response(member, user, new_account)
 
 
 @router.patch("/{user_id}", response_model=schemas.MemberResponse)

@@ -313,6 +313,8 @@ class MemberResponse(BaseModel):
     name: Optional[str] = None
     role: RoleEnum
     joined_at: datetime
+    # True bila akun baru dibuat saat menambahkan anggota (password awal dipakai).
+    new_account: bool = False
 
 class MemberCreate(BaseModel):
     email: EmailStr
