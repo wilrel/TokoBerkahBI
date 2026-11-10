@@ -75,3 +75,19 @@ export const adjustInventory = async (productId: number, adjust: any) => {
   const res = await api.post(`/workspaces/${WORKSPACE_ID}/inventory/adjust?product_id=${productId}`, adjust);
   return res.data;
 };
+
+// ---------------------------------------------------------------- Reports
+
+export const getDashboard = async (startDate: string, endDate: string) => {
+  const res = await api.get(`/workspaces/${WORKSPACE_ID}/reports/dashboard`, {
+    params: { start_date: startDate, end_date: endDate },
+  });
+  return res.data;
+};
+
+export const getProfitLoss = async (startDate: string, endDate: string) => {
+  const res = await api.get(`/workspaces/${WORKSPACE_ID}/reports/profit-loss`, {
+    params: { start_date: startDate, end_date: endDate },
+  });
+  return res.data;
+};
