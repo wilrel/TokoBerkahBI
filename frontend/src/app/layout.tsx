@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
+import AppShell from "@/components/AppShell";
+import { AuthProvider } from "@/components/auth";
 import { ToastProvider } from "@/components/ui/toast";
 
 const geistSans = Geist({
@@ -31,8 +32,9 @@ export default function RootLayout({
     <html lang="id" className={`${geistSans.variable} ${geistMono.variable} h-full`} suppressHydrationWarning>
       <body className="flex h-full overflow-hidden" suppressHydrationWarning>
         <ToastProvider>
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">{children}</main>
+          <AuthProvider>
+            <AppShell>{children}</AppShell>
+          </AuthProvider>
         </ToastProvider>
       </body>
     </html>
