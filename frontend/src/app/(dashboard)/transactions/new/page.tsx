@@ -1,199 +1,325 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { getProducts, createTransaction, initAuth } from '@/lib/api';
-import { Search, ShoppingCart, CheckCircle } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Minus, PackageSearch, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
+import { createTransaction, errorMessage, getProducts, initAuth } from '@/lib/api';
+import { formatNumber, formatRupiah } from '@/lib/format';
+import type { Product } from '@/lib/types';
+import { cn } from '@/lib/cn';
+import { Button, IconButton } from '@/components/ui/button';
+import { Input } from '@/components/ui/field';
+import { Alert, EmptyState, Skeleton } from '@/components/ui/feedback';
+import { useToast } from '@/components/ui/toast';
 
-export default function POSTransactionPage() {
-  const [products, setProducts] = useState<any[]>([]);
-  const [cart, setCart] = useState<any[]>([]);
-  const [search, setSearch] = useState('');
+type CartItem = { product: Product; quantity: number };
+
+const PAYMENT_METHODS = [
+  { key: 'CASH', label: 'Tunai' },
+  { key: 'QRIS', label: 'QRIS' },
+  { key: 'TRANSFER', label: 'Transfer' },
+] as const;
+
+const LOW_STOCK = 5;
+
+export default function POSPage() {
+  const toast = useToast();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [success, setSuccess] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [search, setSearch] = useState('');
+  const [payment, setPayment] = useState<(typeof PAYMENT_METHODS)[number]['key']>('CASH');
+  const [cashReceived, setCashReceived] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    async function load() {
-      await initAuth();
+    let cancelled = false;
+    (async () => {
       try {
+        await initAuth();
         const data = await getProducts();
-        setProducts(data);
+        if (!cancelled) setProducts(data.filter((p) => p.is_active));
       } catch (e) {
-        console.error(e);
+        if (!cancelled) setLoadError(errorMessage(e, 'Gagal memuat produk.'));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    }
-    load();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const addToCart = (product: any) => {
-    if (product.current_stock <= 0) {
-      alert("Out of stock!");
-      return;
-    }
-    const existing = cart.find(item => item.product.id === product.id);
-    if (existing) {
-      if (existing.quantity >= product.current_stock) {
-        alert("Cannot add more than current stock!");
-        return;
+  // Tekan "/" untuk langsung ke kolom cari, seperti aplikasi kasir pada umumnya.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault();
+        searchRef.current?.focus();
       }
-      setCart(cart.map(item => 
-        item.product.id === product.id 
-          ? { ...item, quantity: item.quantity + 1 } 
-          : item
-      ));
-    } else {
-      setCart([...cart, { product, quantity: 1 }]);
-    }
-  };
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  const updateQuantity = (productId: number, newQuantity: number) => {
-    if (newQuantity < 1) return;
-    const product = products.find(p => p.id === productId);
-    if (product && newQuantity > product.current_stock) {
-      alert("Cannot add more than current stock!");
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)) : products;
+  }, [products, search]);
+
+  const qtyInCart = (id: number) => cart.find((i) => i.product.id === id)?.quantity ?? 0;
+  const total = cart.reduce((sum, i) => sum + i.product.selling_price * i.quantity, 0);
+  const itemCount = cart.reduce((sum, i) => sum + i.quantity, 0);
+  const cash = Number(cashReceived) || 0;
+  const change = cash - total;
+  const cashShort = payment === 'CASH' && cashReceived !== '' && change < 0;
+
+  const setQty = (product: Product, quantity: number) => {
+    if (quantity > product.current_stock) {
+      toast({ tone: 'error', title: 'Stok tidak cukup', description: `Sisa stok ${product.name}: ${product.current_stock} ${product.unit}.` });
       return;
     }
-    setCart(cart.map(item => 
-      item.product.id === productId ? { ...item, quantity: newQuantity } : item
-    ));
+    setCart((c) => {
+      if (quantity <= 0) return c.filter((i) => i.product.id !== product.id);
+      const exists = c.some((i) => i.product.id === product.id);
+      return exists ? c.map((i) => (i.product.id === product.id ? { ...i, quantity } : i)) : [...c, { product, quantity }];
+    });
   };
 
-  const removeFromCart = (productId: number) => {
-    setCart(cart.filter(item => item.product.id !== productId));
-  };
-
-  const totalAmount = cart.reduce((sum, item) => sum + (item.product.selling_price * item.quantity), 0);
-
-  const handleCheckout = async () => {
-    if (cart.length === 0) return;
+  const checkout = async () => {
+    if (cart.length === 0 || cashShort) return;
+    setSubmitting(true);
     try {
-      const payload = {
-        payment_method: "CASH",
-        items: cart.map(item => ({
-          product_id: item.product.id,
-          quantity: item.quantity
-        }))
-      };
-      await createTransaction(payload);
-      setSuccess(true);
+      await createTransaction({
+        payment_method: payment,
+        items: cart.map((i) => ({ product_id: i.product.id, quantity: i.quantity })),
+      });
+      toast({
+        tone: 'success',
+        title: 'Transaksi tersimpan',
+        description:
+          payment === 'CASH' && cash > 0 ? `Total ${formatRupiah(total)} · kembalian ${formatRupiah(change)}` : `Total ${formatRupiah(total)}`,
+      });
       setCart([]);
-      
-      // Reload products to get updated stock
-      const data = await getProducts();
-      setProducts(data);
-      
-      setTimeout(() => setSuccess(false), 3000);
-    } catch (e: any) {
-      alert("Failed to checkout: " + e.response?.data?.detail || e.message);
+      setCashReceived('');
+      setProducts((await getProducts()).filter((p) => p.is_active));
+      searchRef.current?.focus();
+    } catch (e) {
+      toast({ tone: 'error', title: 'Transaksi gagal', description: errorMessage(e) });
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()));
+  // Nominal cepat: uang pas + pecahan umum di atas total.
+  const quickCash = useMemo(() => {
+    if (total <= 0) return [];
+    const notes = [10000, 20000, 50000, 100000];
+    const opts = new Set<number>([total]);
+    for (const n of notes) opts.add(Math.ceil(total / n) * n);
+    return [...opts].sort((a, b) => a - b).slice(0, 4);
+  }, [total]);
 
   return (
-    <div className="flex h-full bg-gray-50">
-      {/* Left side: Products */}
-      <div className="flex-1 flex flex-col p-6 overflow-hidden">
-        <div className="mb-6 relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-5 w-5 text-gray-400" />
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col lg:h-dvh lg:flex-row">
+      {/* Produk */}
+      <section className="flex min-h-0 flex-1 flex-col">
+        <div className="border-b border-line bg-surface px-4 py-4 sm:px-6">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-ink">Kasir</h1>
+              <p className="text-sm text-ink-subtle">Pilih produk untuk ditambahkan ke pesanan</p>
+            </div>
           </div>
-          <input
-            type="text"
-            className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 text-lg"
-            placeholder="Search by SKU or Name..."
+          <Input
+            ref={searchRef}
+            autoFocus
+            type="search"
+            aria-label="Cari produk"
+            placeholder="Cari nama produk atau SKU"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            leading={<Search />}
+            trailing={<kbd className="hidden rounded border border-line px-1.5 font-sans text-[11px] sm:inline">/</kbd>}
+            className="mt-4"
           />
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          {loadError && <Alert className="mb-4">{loadError}</Alert>}
           {loading ? (
-            <p>Loading products...</p>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-20">
-              {filteredProducts.map(product => (
-                <div 
-                  key={product.id} 
-                  onClick={() => addToCart(product)}
-                  className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 cursor-pointer hover:border-indigo-500 hover:shadow-md transition-all active:scale-95"
-                >
-                  <div className="text-sm text-gray-500 mb-1">{product.sku}</div>
-                  <div className="font-semibold text-gray-900 mb-2 truncate" title={product.name}>{product.name}</div>
-                  <div className="flex justify-between items-end mt-4">
-                    <div className="font-bold text-indigo-600">Rp {product.selling_price.toLocaleString('id-ID')}</div>
-                    <div className={`text-sm ${product.current_stock > 5 ? 'text-green-600' : 'text-red-600 font-bold'}`}>
-                      Stock: {product.current_stock}
-                    </div>
-                  </div>
-                </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-28 rounded-xl" />
               ))}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* Right side: Cart */}
-      <div className="w-96 bg-white border-l border-gray-200 flex flex-col shadow-lg z-10">
-        <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-          <h2 className="text-xl font-bold text-gray-900 flex items-center">
-            <ShoppingCart className="mr-2" /> Current Order
-          </h2>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {success && (
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative flex items-center">
-              <CheckCircle className="w-5 h-5 mr-2" /> Transaction Saved!
-            </div>
-          )}
-          {cart.length === 0 ? (
-            <div className="text-center text-gray-400 py-10 mt-10">
-              <ShoppingCart className="w-16 h-16 mx-auto mb-4 opacity-50" />
-              <p>Cart is empty</p>
-            </div>
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={PackageSearch} title="Produk tidak ditemukan" description="Coba kata kunci lain atau periksa SKU." />
           ) : (
-            cart.map(item => (
-              <div key={item.product.id} className="flex flex-col bg-gray-50 p-3 rounded-lg border border-gray-100">
-                <div className="flex justify-between mb-2">
-                  <span className="font-medium text-gray-900 truncate">{item.product.name}</span>
-                  <span className="font-semibold text-gray-900">
-                    Rp {(item.product.selling_price * item.quantity).toLocaleString('id-ID')}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-sm text-gray-500">
-                  <span>Rp {item.product.selling_price.toLocaleString('id-ID')} / {item.product.unit}</span>
-                  <div className="flex items-center space-x-3 bg-white rounded-md border border-gray-200 p-1">
-                    <button onClick={() => updateQuantity(item.product.id, item.quantity - 1)} className="px-2 hover:text-indigo-600">-</button>
-                    <span className="font-semibold w-4 text-center">{item.quantity}</span>
-                    <button onClick={() => updateQuantity(item.product.id, item.quantity + 1)} className="px-2 hover:text-indigo-600">+</button>
-                    <button onClick={() => removeFromCart(item.product.id)} className="px-2 text-red-500 ml-2 border-l pl-2">x</button>
-                  </div>
-                </div>
-              </div>
-            ))
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-4">
+              {filtered.map((p) => {
+                const inCart = qtyInCart(p.id);
+                const out = p.current_stock <= 0;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={out}
+                    onClick={() => setQty(p, inCart + 1)}
+                    className={cn(
+                      'group relative flex flex-col rounded-xl border bg-surface p-3.5 text-left shadow-[var(--shadow-card)] transition',
+                      'hover:border-line-strong hover:shadow-md focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:outline-none active:scale-[0.99]',
+                      'disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:shadow-[var(--shadow-card)]',
+                      inCart > 0 ? 'border-accent ring-1 ring-accent' : 'border-line',
+                    )}
+                  >
+                    {inCart > 0 && (
+                      <span className="num absolute top-2.5 right-2.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-white">
+                        {inCart}
+                      </span>
+                    )}
+                    <span className="pr-6 text-xs text-ink-subtle">{p.sku}</span>
+                    <span className="mt-0.5 line-clamp-2 min-h-10 text-sm leading-5 font-medium text-ink">{p.name}</span>
+                    <span className="mt-3 flex items-end justify-between gap-2">
+                      <span className="num text-[15px] font-semibold text-ink">{formatRupiah(p.selling_price)}</span>
+                      <span
+                        className={cn(
+                          'num text-xs',
+                          out ? 'font-medium text-red-700' : p.current_stock <= LOW_STOCK ? 'font-medium text-amber-700' : 'text-ink-subtle',
+                        )}
+                      >
+                        {out ? 'Habis' : `${formatNumber(p.current_stock)} ${p.unit}`}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Pesanan */}
+      <aside className="flex max-h-[55dvh] flex-col border-t border-line bg-surface lg:max-h-none lg:w-[380px] lg:border-t-0 lg:border-l">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-5">
+          <div className="flex items-center gap-2">
+            <h2 className="text-[15px] font-semibold tracking-tight text-ink">Pesanan</h2>
+            {itemCount > 0 && <span className="num rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-ink-muted">{itemCount} item</span>}
+          </div>
+          {cart.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => setCart([])}>
+              Kosongkan
+            </Button>
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-200 bg-white shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
-          <div className="flex justify-between items-center mb-6">
-            <span className="text-lg text-gray-600 font-medium">Total</span>
-            <span className="text-3xl font-bold text-gray-900">Rp {totalAmount.toLocaleString('id-ID')}</span>
-          </div>
-          <button 
-            onClick={handleCheckout}
-            disabled={cart.length === 0}
-            className={`w-full py-4 rounded-xl text-lg font-bold transition-all shadow-md active:scale-[0.98] ${
-              cart.length === 0 
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
-                : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-lg'
-            }`}
-          >
-            Charge Rp {totalAmount.toLocaleString('id-ID')}
-          </button>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {cart.length === 0 ? (
+            <EmptyState icon={ShoppingBag} title="Pesanan masih kosong" description="Pilih produk untuk menambahkannya ke pesanan." className="py-6 lg:py-14" />
+          ) : (
+            <ul className="divide-y divide-line">
+              {cart.map(({ product: p, quantity }) => (
+                <li key={p.id} className="px-5 py-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">{p.name}</p>
+                      <p className="num text-xs text-ink-subtle">
+                        {formatRupiah(p.selling_price)} / {p.unit}
+                      </p>
+                    </div>
+                    <p className="num shrink-0 text-sm font-medium text-ink">{formatRupiah(p.selling_price * quantity)}</p>
+                  </div>
+                  <div className="mt-2.5 flex items-center justify-between">
+                    <div className="inline-flex items-center rounded-lg border border-line">
+                      <IconButton aria-label={`Kurangi ${p.name}`} onClick={() => setQty(p, quantity - 1)} className="rounded-r-none">
+                        <Minus />
+                      </IconButton>
+                      <input
+                        type="number"
+                        min={1}
+                        aria-label={`Jumlah ${p.name}`}
+                        value={quantity}
+                        onChange={(e) => setQty(p, Math.max(1, Number(e.target.value) || 1))}
+                        className="num h-8 w-11 border-x border-line text-center text-sm font-medium text-ink focus:outline-none"
+                      />
+                      <IconButton aria-label={`Tambah ${p.name}`} onClick={() => setQty(p, quantity + 1)} className="rounded-l-none">
+                        <Plus />
+                      </IconButton>
+                    </div>
+                    <IconButton aria-label={`Hapus ${p.name}`} onClick={() => setQty(p, 0)} className="hover:bg-red-50 hover:text-red-600">
+                      <Trash2 />
+                    </IconButton>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
-      </div>
+
+        <div className="shrink-0 space-y-4 border-t border-line bg-zinc-50/60 px-5 py-4">
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-zinc-100 p-0.5" role="group" aria-label="Metode pembayaran">
+            {PAYMENT_METHODS.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                aria-pressed={payment === m.key}
+                onClick={() => setPayment(m.key)}
+                className={cn(
+                  'h-8 rounded-md text-sm transition-colors',
+                  payment === m.key ? 'bg-white font-medium text-ink shadow-[var(--shadow-card)]' : 'text-ink-muted hover:text-ink',
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          {payment === 'CASH' && cart.length > 0 && (
+            <div className="space-y-2">
+              <Input
+                type="number"
+                min={0}
+                inputMode="numeric"
+                aria-label="Uang diterima"
+                placeholder="Uang diterima"
+                value={cashReceived}
+                onChange={(e) => setCashReceived(e.target.value)}
+                leading={<span className="text-xs font-medium">Rp</span>}
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {quickCash.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setCashReceived(String(n))}
+                    className="num h-7 rounded-md border border-line bg-surface px-2 text-xs text-ink-muted transition-colors hover:border-line-strong hover:text-ink"
+                  >
+                    {n === total ? 'Uang pas' : formatRupiah(n)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <dl className="space-y-1.5 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-ink-subtle">Total</dt>
+              <dd className="num text-xl font-semibold tracking-tight text-ink">{formatRupiah(total)}</dd>
+            </div>
+            {payment === 'CASH' && cashReceived !== '' && (
+              <div className="flex justify-between">
+                <dt className="text-ink-subtle">{cashShort ? 'Kurang' : 'Kembalian'}</dt>
+                <dd className={cn('num font-medium', cashShort ? 'text-red-700' : 'text-emerald-700')}>{formatRupiah(Math.abs(change))}</dd>
+              </div>
+            )}
+          </dl>
+
+          <Button size="lg" className="w-full" disabled={cart.length === 0 || cashShort} loading={submitting} onClick={checkout}>
+            {cart.length === 0 ? 'Bayar' : `Bayar ${formatRupiah(total)}`}
+          </Button>
+        </div>
+      </aside>
     </div>
   );
 }
