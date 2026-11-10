@@ -1,10 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Info } from 'lucide-react';
-import { getProfitLoss, initAuth } from '@/lib/api';
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, ReceiptText, Search } from 'lucide-react';
+import { errorMessage, getProfitLoss, initAuth } from '@/lib/api';
 import { DateRange, PresetKey, formatDateLabel, formatNumber, formatPct, formatRupiah, presetRange } from '@/lib/format';
+import { cn } from '@/lib/cn';
 import DateRangeFilter from '@/components/reports/DateRangeFilter';
+import { Card, CardHeader } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/field';
+import { Alert, EmptyState, Skeleton } from '@/components/ui/feedback';
+import { Page, PageHeader } from '@/components/ui/page';
+import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 
 type Row = {
   quantity: number;
@@ -35,7 +42,6 @@ type ProfitLoss = {
 
 type SortKey = 'name' | 'quantity' | 'revenue' | 'gross_profit' | 'gross_margin_pct';
 
-const card = 'bg-white rounded-lg shadow border border-gray-200';
 const longDate = (iso: string) => formatDateLabel(iso, { day: 'numeric', month: 'long', year: 'numeric' });
 
 function downloadCsv(pl: ProfitLoss) {
@@ -54,9 +60,7 @@ function downloadCsv(pl: ProfitLoss) {
     ['Laba setelah selisih stok', pl.profit_after_adjustment],
     [],
     ['SKU', 'Produk', 'Kategori', 'Terjual', 'Satuan', 'Omzet', 'HPP', 'Laba Kotor', 'Margin %'],
-    ...pl.by_product.map((p) => [
-      p.sku, p.name, p.category, p.quantity, p.unit, p.revenue, p.cogs, p.gross_profit, p.gross_margin_pct.toFixed(1),
-    ]),
+    ...pl.by_product.map((p) => [p.sku, p.name, p.category, p.quantity, p.unit, p.revenue, p.cogs, p.gross_profit, p.gross_margin_pct.toFixed(1)]),
   ];
   const csv = lines.map((l) => l.map(esc).join(',')).join('\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
@@ -68,28 +72,41 @@ function downloadCsv(pl: ProfitLoss) {
   URL.revokeObjectURL(url);
 }
 
-function StatementLine({
+/** Satu baris laporan. `kind` menentukan tanda & bobot visual. */
+function Line({
   label,
   value,
-  sign = '',
-  strong = false,
-  sub,
+  kind = 'plain',
+  note,
 }: {
   label: string;
   value: number;
-  sign?: '' | '−' | '+';
-  strong?: boolean;
-  sub?: string;
+  kind?: 'plain' | 'minus' | 'plus' | 'subtotal' | 'total';
+  note?: string;
 }) {
+  const strong = kind === 'subtotal' || kind === 'total';
+  const sign = kind === 'minus' && value !== 0 ? '− ' : kind === 'plus' && value !== 0 ? '+ ' : '';
   return (
-    <div className={`flex items-baseline justify-between py-2.5 ${strong ? 'border-t border-gray-300 font-semibold text-gray-900' : 'text-gray-700'}`}>
-      <div>
-        <span className={strong ? 'text-base' : 'text-sm'}>{label}</span>
-        {sub && <span className="ml-2 text-xs text-gray-500">{sub}</span>}
+    <div
+      className={cn(
+        'flex items-baseline justify-between gap-4 px-5',
+        strong ? 'border-t border-line py-3.5' : 'py-2.5',
+        kind === 'total' && 'bg-zinc-50/70',
+      )}
+    >
+      <div className="min-w-0">
+        <span className={cn('text-sm', strong ? 'font-semibold text-ink' : 'text-ink-muted')}>{label}</span>
+        {note && <span className="ml-2 text-xs text-ink-subtle">{note}</span>}
       </div>
-      <span className={`tabular-nums ${strong ? 'text-base' : 'text-sm'} ${value < 0 && strong ? 'text-red-700' : ''}`}>
-        {sign && value !== 0 ? `${sign} ` : ''}
-        {formatRupiah(Math.abs(value) * (strong && value < 0 ? -1 : 1))}
+      <span
+        className={cn(
+          'num shrink-0',
+          kind === 'total' ? 'text-lg font-semibold' : strong ? 'text-[15px] font-semibold' : 'text-sm',
+          strong && value < 0 ? 'text-red-700' : strong ? 'text-ink' : 'text-ink-muted',
+        )}
+      >
+        {sign}
+        {formatRupiah(strong ? value : Math.abs(value))}
       </span>
     </div>
   );
@@ -120,7 +137,7 @@ export default function ProfitLossPage() {
         setData(d);
         setError(null);
       })
-      .catch((e) => !cancelled && setError(e?.response?.data?.detail ?? 'Gagal memuat laporan.'))
+      .catch((e) => !cancelled && setError(errorMessage(e, 'Gagal memuat laporan.')))
       .finally(() => !cancelled && setLoadedKey(key));
     return () => {
       cancelled = true;
@@ -130,9 +147,7 @@ export default function ProfitLossPage() {
   const products = useMemo(() => {
     if (!data) return [];
     const q = query.trim().toLowerCase();
-    const rows = q
-      ? data.by_product.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
-      : data.by_product;
+    const rows = q ? data.by_product.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)) : data.by_product;
     return [...rows].sort((a, b) => {
       const av = a[sort.key];
       const bv = b[sort.key];
@@ -140,155 +155,170 @@ export default function ProfitLossPage() {
     });
   }, [data, sort, query]);
 
-  const sortHeader = (key: SortKey, label: string, align: 'left' | 'right' = 'right') => (
-    <th className={`px-5 py-2 font-medium text-${align}`} aria-sort={sort.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
-      <button
-        type="button"
-        className="uppercase hover:text-gray-900"
-        onClick={() => setSort((s) => ({ key, dir: s.key === key ? ((-s.dir) as 1 | -1) : key === 'name' ? 1 : -1 }))}
-      >
-        {label}
-        {sort.key === key ? (sort.dir === 1 ? ' ↑' : ' ↓') : ''}
-      </button>
-    </th>
-  );
-
   const loading = !error && loadedKey !== `${range.start}|${range.end}`;
+  const maxCategoryRevenue = Math.max(1, ...(data?.by_category.map((c) => c.revenue) ?? [1]));
+
+  const sortHeader = (key: SortKey, label: string, align: 'left' | 'right' = 'right') => {
+    const active = sort.key === key;
+    const Icon = !active ? ChevronsUpDown : sort.dir === 1 ? ArrowUp : ArrowDown;
+    return (
+      <TH align={align} aria-sort={active ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
+        <button
+          type="button"
+          className={cn('inline-flex items-center gap-1 hover:text-ink', active && 'text-ink')}
+          onClick={() => setSort((s) => ({ key, dir: s.key === key ? ((-s.dir) as 1 | -1) : key === 'name' ? 1 : -1 }))}
+        >
+          {label}
+          <Icon className={cn('size-3', !active && 'opacity-50')} aria-hidden="true" />
+        </button>
+      </TH>
+    );
+  };
 
   return (
-    <div className="p-4 sm:p-8 space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Laporan Laba Rugi</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            {data ? `${longDate(data.start_date)} – ${longDate(data.end_date)}` : 'Pendapatan, HPP, dan laba per periode.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <DateRangeFilter
-            value={range}
-            preset={preset}
-            onChange={(r, p) => {
-              setRange(r);
-              setPreset(p);
-            }}
-          />
-          <button
-            type="button"
-            disabled={!data}
-            onClick={() => data && downloadCsv(data)}
-            className="inline-flex items-center rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <Download className="w-4 h-4 mr-1.5" aria-hidden="true" /> Ekspor CSV
-          </button>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="Laba rugi"
+        description={data ? `${longDate(data.start_date)} – ${longDate(data.end_date)}` : 'Pendapatan, HPP, dan laba per periode'}
+        actions={
+          <>
+            <DateRangeFilter
+              value={range}
+              preset={preset}
+              onChange={(r, p) => {
+                setRange(r);
+                setPreset(p);
+              }}
+            />
+            <Button variant="secondary" disabled={!data} onClick={() => data && downloadCsv(data)}>
+              <Download /> Ekspor CSV
+            </Button>
+          </>
+        }
+      />
 
-      {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
+      {error && <Alert className="mb-6">{error}</Alert>}
 
       {!data && loading ? (
-        <div className="text-gray-500 text-sm">Memuat…</div>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+          <Card className="space-y-4 p-5 xl:col-span-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-5 w-full" />
+            ))}
+          </Card>
+          <Card className="space-y-4 p-5 xl:col-span-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-5 w-full" />
+            ))}
+          </Card>
+        </div>
       ) : data ? (
-        <div className={`space-y-6 transition-opacity ${loading ? 'opacity-60' : ''}`}>
-          <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-            {/* Laporan */}
-            <div className={`${card} p-5 xl:col-span-3`}>
-              <h2 className="text-base font-semibold text-gray-900 mb-2">Ringkasan</h2>
-              <StatementLine label="Pendapatan penjualan" value={data.revenue} sub={`${formatNumber(data.transaction_count)} transaksi · ${formatNumber(data.items_sold)} barang`} />
-              <StatementLine label="Harga Pokok Penjualan (HPP)" value={data.cogs} sign="−" />
-              <StatementLine label="Laba Kotor" value={data.gross_profit} strong sub={`margin ${formatPct(data.gross_margin_pct)}`} />
-              <StatementLine label="Kehilangan / kerusakan stok" value={data.stock_loss} sign="−" />
-              <StatementLine label="Kelebihan stok dari opname" value={data.stock_gain} sign="+" />
-              <StatementLine label="Laba setelah selisih stok" value={data.profit_after_adjustment} strong />
-              <p className="mt-4 flex items-start gap-2 rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                <Info className="w-4 h-4 flex-shrink-0 text-gray-400" aria-hidden="true" />
-                Biaya operasional (gaji, listrik, sewa) belum dicatat di sistem, jadi angka ini belum laba bersih.
-                Selisih stok dinilai dengan HPP produk saat ini.
-              </p>
-            </div>
-
-            {/* Per kategori */}
-            <div className={`${card} xl:col-span-2 overflow-hidden`}>
-              <h2 className="px-5 py-4 border-b border-gray-200 text-base font-semibold text-gray-900">Per kategori</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                    <tr>
-                      <th className="px-5 py-2 text-left font-medium">Kategori</th>
-                      <th className="px-5 py-2 text-right font-medium">Omzet</th>
-                      <th className="px-5 py-2 text-right font-medium">Laba</th>
-                      <th className="px-5 py-2 text-right font-medium">Margin</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 tabular-nums whitespace-nowrap">
-                    {data.by_category.length === 0 ? (
-                      <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-500">Belum ada penjualan.</td></tr>
-                    ) : (
-                      data.by_category.map((c) => (
-                        <tr key={c.category}>
-                          <td className="px-5 py-2.5 text-gray-900">{c.category}</td>
-                          <td className="px-5 py-2.5 text-right text-gray-900">{formatRupiah(c.revenue)}</td>
-                          <td className="px-5 py-2.5 text-right text-gray-900">{formatRupiah(c.gross_profit)}</td>
-                          <td className="px-5 py-2.5 text-right text-gray-600">{formatPct(c.gross_margin_pct)}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+        <div className={cn('space-y-6 transition-opacity', loading && 'opacity-60')}>
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+            <Card className="overflow-hidden xl:col-span-3">
+              <CardHeader
+                title="Ringkasan"
+                description={`${formatNumber(data.transaction_count)} transaksi · ${formatNumber(data.items_sold)} barang terjual`}
+              />
+              <div className="border-t border-line pt-1.5">
+                <Line label="Pendapatan penjualan" value={data.revenue} />
+                <Line label="Harga pokok penjualan (HPP)" value={data.cogs} kind="minus" />
+                <Line label="Laba kotor" value={data.gross_profit} kind="subtotal" note={`margin ${formatPct(data.gross_margin_pct)}`} />
+                <Line label="Kehilangan atau kerusakan stok" value={data.stock_loss} kind="minus" />
+                <Line label="Kelebihan stok dari opname" value={data.stock_gain} kind="plus" />
+                <Line label="Laba setelah selisih stok" value={data.profit_after_adjustment} kind="total" />
               </div>
-            </div>
+              <p className="border-t border-line px-5 py-3 text-xs leading-relaxed text-ink-subtle">
+                Biaya operasional seperti gaji, listrik, dan sewa belum dicatat, sehingga angka ini belum laba bersih. Selisih stok dinilai
+                dengan HPP produk saat ini.
+              </p>
+            </Card>
+
+            <Card className="xl:col-span-2">
+              <CardHeader title="Per kategori" description="Kontribusi omzet dan laba" />
+              {data.by_category.length === 0 ? (
+                <p className="px-5 pb-6 text-sm text-ink-subtle">Belum ada penjualan.</p>
+              ) : (
+                <ul className="space-y-4 px-5 pb-5">
+                  {data.by_category.map((c) => (
+                    <li key={c.category}>
+                      <div className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="truncate font-medium text-ink">{c.category}</span>
+                        <span className="num shrink-0 text-ink">{formatRupiah(c.revenue)}</span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100" aria-hidden="true">
+                        <div className="h-full rounded-full bg-accent" style={{ width: `${(c.revenue / maxCategoryRevenue) * 100}%` }} />
+                      </div>
+                      <p className="num mt-1.5 text-xs text-ink-subtle">
+                        Laba {formatRupiah(c.gross_profit)} · margin {formatPct(c.gross_margin_pct)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
           </div>
 
-          {/* Per produk */}
-          <div className={`${card} overflow-hidden`}>
-            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-200">
-              <h2 className="text-base font-semibold text-gray-900">Per produk</h2>
-              <input
-                type="search"
-                placeholder="Cari nama atau SKU…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="w-full sm:w-64 rounded-md border border-gray-200 px-3 py-1.5 text-sm"
-              />
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 text-sm">
-                <thead className="bg-gray-50 text-xs text-gray-500">
+          <Card className="overflow-hidden">
+            <CardHeader
+              title="Per produk"
+              description={`${formatNumber(products.length)} produk terjual`}
+              action={
+                <Input
+                  type="search"
+                  aria-label="Cari produk"
+                  placeholder="Cari nama atau SKU"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  leading={<Search />}
+                  className="w-full sm:w-64"
+                />
+              }
+            />
+            {products.length === 0 ? (
+              <EmptyState icon={ReceiptText} title={query ? 'Produk tidak ditemukan' : 'Belum ada penjualan'} />
+            ) : (
+              <Table>
+                <THead>
                   <tr>
                     {sortHeader('name', 'Produk', 'left')}
                     {sortHeader('quantity', 'Terjual')}
                     {sortHeader('revenue', 'Omzet')}
-                    <th className="px-5 py-2 text-right font-medium uppercase">HPP</th>
-                    {sortHeader('gross_profit', 'Laba Kotor')}
+                    <TH align="right">HPP</TH>
+                    {sortHeader('gross_profit', 'Laba kotor')}
                     {sortHeader('gross_margin_pct', 'Margin')}
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 tabular-nums whitespace-nowrap">
-                  {products.length === 0 ? (
-                    <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-500">Tidak ada data.</td></tr>
-                  ) : (
-                    products.map((p) => (
-                      <tr key={p.product_id} className="hover:bg-gray-50">
-                        <td className="px-5 py-2.5">
-                          <div className="font-medium text-gray-900">{p.name}</div>
-                          <div className="text-xs text-gray-500">{p.sku} · {p.category}</div>
-                        </td>
-                        <td className="px-5 py-2.5 text-right text-gray-600">{formatNumber(p.quantity)} {p.unit}</td>
-                        <td className="px-5 py-2.5 text-right text-gray-900">{formatRupiah(p.revenue)}</td>
-                        <td className="px-5 py-2.5 text-right text-gray-600">{formatRupiah(p.cogs)}</td>
-                        <td className={`px-5 py-2.5 text-right font-semibold ${p.gross_profit < 0 ? 'text-red-700' : 'text-gray-900'}`}>
-                          {formatRupiah(p.gross_profit)}
-                        </td>
-                        <td className="px-5 py-2.5 text-right text-gray-600">{formatPct(p.gross_margin_pct)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                </THead>
+                <TBody>
+                  {products.map((p) => (
+                    <TR key={p.product_id}>
+                      <TD>
+                        <div className="font-medium">{p.name}</div>
+                        <div className="text-xs text-ink-subtle">
+                          {p.sku} · {p.category}
+                        </div>
+                      </TD>
+                      <TD align="right" className="text-ink-muted">
+                        {formatNumber(p.quantity)} {p.unit}
+                      </TD>
+                      <TD align="right">{formatRupiah(p.revenue)}</TD>
+                      <TD align="right" className="text-ink-muted">
+                        {formatRupiah(p.cogs)}
+                      </TD>
+                      <TD align="right" className={cn('font-medium', p.gross_profit < 0 && 'text-red-700')}>
+                        {formatRupiah(p.gross_profit)}
+                      </TD>
+                      <TD align="right" className="text-ink-muted">
+                        {formatPct(p.gross_margin_pct)}
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </Card>
         </div>
       ) : null}
-    </div>
+    </Page>
   );
 }
