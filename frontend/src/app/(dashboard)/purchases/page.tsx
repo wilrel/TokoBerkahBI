@@ -1,83 +1,111 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { Plus, PackagePlus } from 'lucide-react';
-import { getPurchases, initAuth } from '@/lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowDownToLine, Plus } from 'lucide-react';
+import { errorMessage, getPurchases, initAuth } from '@/lib/api';
+import { formatNumber, formatRupiah } from '@/lib/format';
+import type { Purchase } from '@/lib/types';
+import { Card } from '@/components/ui/card';
+import { LinkButton } from '@/components/ui/button';
+import { Alert, EmptyState, Skeleton } from '@/components/ui/feedback';
+import { Page, PageHeader } from '@/components/ui/page';
+import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 
-export default function PurchasesHistoryPage() {
-  const [purchases, setPurchases] = useState<any[]>([]);
+const formatDateTime = (iso: string) =>
+  new Date(iso).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+export default function PurchasesPage() {
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function load() {
-      await initAuth();
+    let cancelled = false;
+    (async () => {
       try {
+        await initAuth();
         const data = await getPurchases();
-        setPurchases(data);
+        if (!cancelled) setPurchases(data);
       } catch (e) {
-        console.error(e);
+        if (!cancelled) setError(errorMessage(e, 'Gagal memuat riwayat pembelian.'));
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    }
-    load();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Purchase History</h1>
-          <p className="text-gray-500 text-sm mt-1">Record of incoming stock and restocks from suppliers.</p>
-        </div>
-        <Link href="/purchases/new" className="bg-indigo-600 text-white px-4 py-2 rounded-md flex items-center hover:bg-indigo-700 transition">
-          <Plus className="w-5 h-5 mr-2" />
-          New Purchase
-        </Link>
-      </div>
+  const total = useMemo(() => purchases.reduce((a, p) => a + p.total_amount, 0), [purchases]);
 
-      <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Supplier</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {loading ? (
-              <tr><td colSpan={4} className="px-6 py-4 text-center text-gray-500">Loading...</td></tr>
-            ) : purchases.length === 0 ? (
+  return (
+    <Page>
+      <PageHeader
+        title="Pembelian"
+        description={
+          loading ? 'Riwayat barang masuk dari supplier' : `${formatNumber(purchases.length)} pembelian · total ${formatRupiah(total)}`
+        }
+        actions={
+          <LinkButton href="/purchases/new">
+            <Plus /> Catat pembelian
+          </LinkButton>
+        }
+      />
+
+      {error && <Alert className="mb-6">{error}</Alert>}
+
+      <Card className="overflow-hidden">
+        {loading ? (
+          <div className="space-y-3 p-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : purchases.length === 0 ? (
+          <EmptyState
+            icon={ArrowDownToLine}
+            title="Belum ada pembelian"
+            description="Catat barang masuk dari supplier agar stok dan HPP selalu akurat."
+            action={
+              <LinkButton href="/purchases/new">
+                <Plus /> Catat pembelian
+              </LinkButton>
+            }
+          />
+        ) : (
+          <Table>
+            <THead className="border-t-0">
               <tr>
-                <td colSpan={4} className="px-6 py-10 text-center text-gray-500 flex flex-col items-center">
-                  <PackagePlus className="w-10 h-10 text-gray-300 mb-2"/>
-                  No purchases found. Click New Purchase to restock inventory.
-                </td>
+                <TH>Tanggal</TH>
+                <TH>Supplier</TH>
+                <TH>Barang</TH>
+                <TH align="right">Total</TH>
               </tr>
-            ) : (
-              purchases.map((purchase) => (
-                <tr key={purchase.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(purchase.timestamp).toLocaleString('id-ID')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {purchase.supplier_name || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                    Rp {purchase.total_amount.toLocaleString('id-ID')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {purchase.items.length} items
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+            </THead>
+            <TBody>
+              {purchases.map((p) => {
+                const names = p.items.map((i) => i.product?.name).filter(Boolean) as string[];
+                return (
+                  <TR key={p.id}>
+                    <TD className="num text-ink-muted">{formatDateTime(p.timestamp)}</TD>
+                    <TD className="font-medium">{p.supplier_name || <span className="font-normal text-ink-subtle">Tanpa nama</span>}</TD>
+                    <TD className="max-w-xs">
+                      <div className="truncate text-ink-muted" title={names.join(', ')}>
+                        {names.length ? names.join(', ') : `${p.items.length} barang`}
+                      </div>
+                      <div className="text-xs text-ink-subtle">{formatNumber(p.items.length)} jenis barang</div>
+                    </TD>
+                    <TD align="right" className="font-medium">
+                      {formatRupiah(p.total_amount)}
+                    </TD>
+                  </TR>
+                );
+              })}
+            </TBody>
+          </Table>
+        )}
+      </Card>
+    </Page>
   );
 }

@@ -1,152 +1,185 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getProducts, createPurchase, initAuth } from '@/lib/api';
-import { Plus, Trash2, CheckCircle } from 'lucide-react';
+import { ChevronLeft, PackagePlus, Plus, Trash2 } from 'lucide-react';
+import { createPurchase, errorMessage, getProducts, initAuth } from '@/lib/api';
+import { formatRupiah } from '@/lib/format';
+import type { Product } from '@/lib/types';
+import { Button, IconButton, LinkButton } from '@/components/ui/button';
+import { Card, CardHeader } from '@/components/ui/card';
+import { Field, Input, Select } from '@/components/ui/field';
+import { Alert, EmptyState } from '@/components/ui/feedback';
+import { Page, PageHeader } from '@/components/ui/page';
+import { useToast } from '@/components/ui/toast';
+
+type Line = { key: number; product_id: number | ''; quantity: string; unit_cost: string };
+
+let nextKey = 1;
+const newLine = (): Line => ({ key: nextKey++, product_id: '', quantity: '1', unit_cost: '' });
 
 export default function NewPurchasePage() {
   const router = useRouter();
-  const [products, setProducts] = useState<any[]>([]);
-  const [supplierName, setSupplierName] = useState('');
-  const [items, setItems] = useState<{product_id: number, quantity: number, unit_cost: number}[]>([]);
-  const [loading, setLoading] = useState(false);
+  const toast = useToast();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [supplier, setSupplier] = useState('');
+  const [lines, setLines] = useState<Line[]>(() => [newLine()]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function load() {
-      await initAuth();
-      const data = await getProducts();
-      setProducts(data);
-    }
-    load();
+    let cancelled = false;
+    (async () => {
+      try {
+        await initAuth();
+        const data = await getProducts();
+        if (!cancelled) setProducts(data);
+      } catch (e) {
+        if (!cancelled) setError(errorMessage(e, 'Gagal memuat produk.'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const addItem = () => {
-    if (products.length === 0) return;
-    setItems([...items, { product_id: products[0].id, quantity: 1, unit_cost: 0 }]);
-  };
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const subtotal = (l: Line) => (Number(l.quantity) || 0) * (Number(l.unit_cost) || 0);
+  const total = lines.reduce((a, l) => a + subtotal(l), 0);
+  const valid = lines.length > 0 && lines.every((l) => l.product_id !== '' && Number(l.quantity) > 0 && l.unit_cost !== '');
 
-  const removeItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-  };
-
-  const updateItem = (index: number, field: string, value: number) => {
-    const newItems = [...items];
-    (newItems[index] as any)[field] = value;
-    setItems(newItems);
-  };
-
-  const totalAmount = items.reduce((sum, item) => sum + (item.quantity * item.unit_cost), 0);
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (items.length === 0) return alert("Please add at least one item.");
-    
-    setLoading(true);
+    if (!valid) return;
+    setSaving(true);
+    setError(null);
     try {
       await createPurchase({
-        supplier_name: supplierName,
-        items: items
+        supplier_name: supplier.trim() || undefined,
+        items: lines.map((l) => ({ product_id: Number(l.product_id), quantity: Number(l.quantity), unit_cost: Number(l.unit_cost) })),
       });
+      toast({ tone: 'success', title: 'Pembelian tersimpan', description: `Stok dan HPP ${lines.length} produk diperbarui.` });
       router.push('/purchases');
-    } catch (e: any) {
-      alert("Failed to create purchase: " + (e.response?.data?.detail || e.message));
-      setLoading(false);
+    } catch (err) {
+      setError(errorMessage(err, 'Gagal menyimpan pembelian.'));
+      setSaving(false);
     }
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">New Purchase (Restock)</h1>
-        <p className="text-gray-500 text-sm mt-1">Record incoming stock. This will update the current HPP automatically.</p>
-      </div>
+    <Page size="narrow">
+      <PageHeader
+        eyebrow={
+          <LinkButton href="/purchases" variant="ghost" size="sm" className="-ml-2.5">
+            <ChevronLeft /> Pembelian
+          </LinkButton>
+        }
+        title="Catat pembelian"
+        description="Stok bertambah dan HPP diperbarui otomatis berdasarkan harga beli."
+      />
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
-        <div className="p-6 border-b border-gray-200">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Supplier Name</label>
-          <input 
-            type="text" 
-            className="w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500"
-            value={supplierName}
-            onChange={e => setSupplierName(e.target.value)}
-            placeholder="e.g. PT Distributor Sembako"
+      <form onSubmit={submit} className="space-y-6">
+        {error && <Alert>{error}</Alert>}
+
+        <Card className="p-5">
+          <Field label="Supplier" htmlFor="supplier" hint="Opsional. Nama distributor atau toko tempat membeli.">
+            <Input id="supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="PT Distributor Sembako" />
+          </Field>
+        </Card>
+
+        <Card className="overflow-hidden">
+          <CardHeader
+            title="Barang"
+            description="Harga beli per satuan, sebelum diskon"
+            action={
+              <Button variant="secondary" size="sm" onClick={() => setLines((ls) => [...ls, newLine()])}>
+                <Plus /> Tambah baris
+              </Button>
+            }
           />
-        </div>
 
-        <div className="p-6 bg-gray-50">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Items</h3>
-            <button type="button" onClick={addItem} className="text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-md hover:bg-indigo-100 flex items-center text-sm font-medium">
-              <Plus className="w-4 h-4 mr-1" /> Add Item
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {items.map((item, index) => (
-              <div key={index} className="flex space-x-4 items-end bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-                <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Product</label>
-                  <select 
-                    className="w-full border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-                    value={item.product_id}
-                    onChange={e => updateItem(index, 'product_id', parseInt(e.target.value))}
-                  >
-                    {products.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.name}</option>)}
-                  </select>
-                </div>
-                <div className="w-24">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Qty</label>
-                  <input 
-                    type="number" min="1"
-                    className="w-full border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-                    value={item.quantity}
-                    onChange={e => updateItem(index, 'quantity', parseInt(e.target.value) || 0)}
-                  />
-                </div>
-                <div className="w-40">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Unit Cost (Rp)</label>
-                  <input 
-                    type="number" min="0"
-                    className="w-full border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-indigo-500 focus:border-indigo-500"
-                    value={item.unit_cost}
-                    onChange={e => updateItem(index, 'unit_cost', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <div className="w-32">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Subtotal</label>
-                  <div className="py-2 px-3 text-sm font-semibold bg-gray-50 rounded-md border border-gray-100">
-                    {(item.quantity * item.unit_cost).toLocaleString('id-ID')}
+          {lines.length === 0 ? (
+            <div className="border-t border-line">
+              <EmptyState icon={PackagePlus} title="Belum ada barang" description="Tambahkan minimal satu barang." />
+            </div>
+          ) : (
+            <div className="divide-y divide-line border-t border-line">
+              <div className="hidden grid-cols-[1fr_88px_150px_130px_32px] gap-3 bg-zinc-50/70 px-5 py-2 text-xs font-medium text-ink-subtle md:grid">
+                <span>Produk</span>
+                <span>Jumlah</span>
+                <span>Harga beli</span>
+                <span className="text-right">Subtotal</span>
+                <span />
+              </div>
+              {lines.map((l, idx) => {
+                const product = l.product_id === '' ? undefined : productById.get(l.product_id);
+                return (
+                  <div key={l.key} className="grid grid-cols-2 items-start gap-3 px-5 py-3.5 md:grid-cols-[1fr_88px_150px_130px_32px] md:items-center">
+                    <Select
+                      aria-label={`Produk baris ${idx + 1}`}
+                      value={l.product_id}
+                      onChange={(e) => {
+                        const id = e.target.value === '' ? '' : Number(e.target.value);
+                        const p = id === '' ? undefined : productById.get(id);
+                        // Isi harga beli dengan HPP terakhir sebagai titik awal.
+                        update(l.key, { product_id: id, unit_cost: l.unit_cost === '' && p ? String(p.current_hpp) : l.unit_cost });
+                      }}
+                      className="col-span-2 md:col-span-1"
+                    >
+                      <option value="">Pilih produk</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.sku})
+                        </option>
+                      ))}
+                    </Select>
+                    <Input
+                      type="number"
+                      min={1}
+                      aria-label={`Jumlah baris ${idx + 1}`}
+                      value={l.quantity}
+                      onChange={(e) => update(l.key, { quantity: e.target.value })}
+                      trailing={product?.unit}
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      aria-label={`Harga beli baris ${idx + 1}`}
+                      value={l.unit_cost}
+                      onChange={(e) => update(l.key, { unit_cost: e.target.value })}
+                      leading={<span className="text-xs">Rp</span>}
+                    />
+                    <div className="num self-center text-sm font-medium text-ink md:text-right">{formatRupiah(subtotal(l))}</div>
+                    <IconButton
+                      aria-label={`Hapus baris ${idx + 1}`}
+                      onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}
+                      className="justify-self-end hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 />
+                    </IconButton>
                   </div>
-                </div>
-                <button type="button" onClick={() => removeItem(index)} className="p-2 text-gray-400 hover:text-red-500 mb-0.5">
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            ))}
-            
-            {items.length === 0 && (
-              <div className="text-center py-8 text-gray-400 border-2 border-dashed border-gray-200 rounded-lg bg-white">
-                No items added yet.
-              </div>
-            )}
-          </div>
-        </div>
+                );
+              })}
+            </div>
+          )}
 
-        <div className="p-6 border-t border-gray-200 flex justify-between items-center bg-white">
-          <div>
-            <span className="text-sm text-gray-500">Total Purchase</span>
-            <div className="text-2xl font-bold text-gray-900">Rp {totalAmount.toLocaleString('id-ID')}</div>
+          <div className="flex flex-col gap-4 border-t border-line bg-zinc-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm text-ink-subtle">Total pembelian</p>
+              <p className="num text-2xl font-semibold tracking-tight">{formatRupiah(total)}</p>
+            </div>
+            <div className="flex gap-2">
+              <LinkButton href="/purchases" variant="secondary">
+                Batal
+              </LinkButton>
+              <Button type="submit" disabled={!valid} loading={saving}>
+                Simpan pembelian
+              </Button>
+            </div>
           </div>
-          <button 
-            type="submit"
-            disabled={loading || items.length === 0}
-            className="bg-green-600 text-white px-6 py-2.5 rounded-md hover:bg-green-700 disabled:bg-gray-300 flex items-center font-medium transition"
-          >
-            {loading ? "Saving..." : "Save Purchase"} <CheckCircle className="w-5 h-5 ml-2" />
-          </button>
-        </div>
+        </Card>
       </form>
-    </div>
+    </Page>
   );
 }
