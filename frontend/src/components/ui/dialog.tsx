@@ -29,7 +29,8 @@ export function Dialog({ open, onClose, title, description, children, footer }: 
     <dialog
       ref={ref}
       aria-labelledby={titleId}
-      onClose={onClose}
+      // Abaikan event close dari dialog lain yang bersarang di dalam dialog ini (mis. scanner di dalam form).
+      onClose={(e) => e.target === ref.current && onClose()}
       onClick={(e) => e.target === ref.current && onClose()}
       className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-line bg-surface p-0 text-ink shadow-[var(--shadow-pop)] backdrop:bg-zinc-950/40 backdrop:backdrop-blur-[2px] open:animate-[dialog-in_160ms_ease-out]"
     >

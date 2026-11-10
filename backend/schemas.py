@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import date, datetime
 from models import RoleEnum
@@ -7,10 +7,14 @@ class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(min_length=6)
+    name: Optional[str] = None
+    # Bila diisi, toko baru dibuat sekaligus dan pendaftar menjadi Owner.
+    store_name: Optional[str] = None
 
 class UserResponse(UserBase):
     id: int
+    name: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -288,3 +292,39 @@ class ProfitLossResponse(BaseModel):
     items_sold: int
     by_category: List[CategoryProfit]
     by_product: List[ProductSales]
+
+
+# ---------------------------------------------------------------- Team
+
+class MembershipResponse(BaseModel):
+    workspace_id: int
+    workspace_name: str
+    role: RoleEnum
+
+class MeResponse(BaseModel):
+    id: int
+    email: EmailStr
+    name: Optional[str] = None
+    memberships: List[MembershipResponse]
+
+class MemberResponse(BaseModel):
+    user_id: int
+    email: EmailStr
+    name: Optional[str] = None
+    role: RoleEnum
+    joined_at: datetime
+    # True bila akun baru dibuat saat menambahkan anggota (password awal dipakai).
+    new_account: bool = False
+
+class MemberCreate(BaseModel):
+    email: EmailStr
+    name: Optional[str] = None
+    # Dipakai bila email belum punya akun; diabaikan bila akun sudah ada.
+    password: Optional[str] = Field(default=None, min_length=6)
+    role: RoleEnum
+
+class MemberUpdate(BaseModel):
+    role: RoleEnum
+
+class PasswordReset(BaseModel):
+    password: str = Field(min_length=6)

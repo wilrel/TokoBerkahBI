@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Minus, PackageSearch, Plus, Search, ShoppingBag, Trash2 } from 'lucide-react';
+import { Minus, PackageSearch, Plus, ScanLine, Search, ShoppingBag, Trash2 } from 'lucide-react';
 import { createTransaction, errorMessage, getProducts, initAuth } from '@/lib/api';
 import { formatNumber, formatRupiah } from '@/lib/format';
 import type { Product } from '@/lib/types';
@@ -10,6 +10,7 @@ import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/field';
 import { Alert, EmptyState, Skeleton } from '@/components/ui/feedback';
 import { useToast } from '@/components/ui/toast';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
 type CartItem = { product: Product; quantity: number };
 
@@ -29,6 +30,8 @@ export default function POSPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [lastScan, setLastScan] = useState<string | null>(null);
   const [payment, setPayment] = useState<(typeof PAYMENT_METHODS)[number]['key']>('CASH');
   const [cashReceived, setCashReceived] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -87,6 +90,37 @@ export default function POSPage() {
     });
   };
 
+  const findBySku = (code: string) => products.find((p) => p.sku.toLowerCase() === code.trim().toLowerCase());
+
+  /** Barcode dari kamera atau scanner USB: cocokkan dengan SKU lalu tambah 1 ke pesanan. */
+  const addByCode = (code: string) => {
+    const product = findBySku(code);
+    if (!product) {
+      toast({ tone: 'error', title: 'Barcode belum terdaftar', description: `Kode ${code} tidak cocok dengan SKU produk mana pun.` });
+      setLastScan(null);
+      return false;
+    }
+    const next = qtyInCart(product.id) + 1;
+    setQty(product, next);
+    setLastScan(next <= product.current_stock ? `${product.name} ditambahkan, jumlah ${next}` : null);
+    return next <= product.current_stock;
+  };
+
+  /** Scanner USB mengetik kode lalu menekan Enter. */
+  const onSearchEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const code = search.trim();
+    if (!code) return;
+    if (findBySku(code)) {
+      addByCode(code);
+      setSearch('');
+    } else if (filtered.length === 1) {
+      setQty(filtered[0], qtyInCart(filtered[0].id) + 1);
+      setSearch('');
+    }
+  };
+
   const checkout = async () => {
     if (cart.length === 0 || cashShort) return;
     setSubmitting(true);
@@ -129,21 +163,33 @@ export default function POSPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h1 className="text-lg font-semibold tracking-tight text-ink">Kasir</h1>
-              <p className="text-sm text-ink-subtle">Pilih produk untuk ditambahkan ke pesanan</p>
+              <p className="text-sm text-ink-subtle">Ketuk produk atau scan barcode untuk menambahkannya</p>
             </div>
           </div>
-          <Input
-            ref={searchRef}
-            autoFocus
-            type="search"
-            aria-label="Cari produk"
-            placeholder="Cari nama produk atau SKU"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            leading={<Search />}
-            trailing={<kbd className="hidden rounded border border-line px-1.5 font-sans text-[11px] sm:inline">/</kbd>}
-            className="mt-4"
-          />
+          <div className="mt-4 flex gap-2">
+            <Input
+              ref={searchRef}
+              autoFocus
+              type="search"
+              aria-label="Cari produk atau scan barcode"
+              placeholder="Cari produk, atau scan barcode"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={onSearchEnter}
+              leading={<Search />}
+              trailing={<kbd className="hidden rounded border border-line px-1.5 font-sans text-[11px] sm:inline">/</kbd>}
+              className="flex-1"
+            />
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setLastScan(null);
+                setScanning(true);
+              }}
+            >
+              <ScanLine /> <span className="hidden sm:inline">Scan</span>
+            </Button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
@@ -320,6 +366,17 @@ export default function POSPage() {
           </Button>
         </div>
       </aside>
+      <BarcodeScanner
+        open={scanning}
+        onClose={() => {
+          setScanning(false);
+          searchRef.current?.focus();
+        }}
+        onScan={addByCode}
+        title="Scan barang"
+        continuous
+        lastResult={lastScan}
+      />
     </div>
   );
 }

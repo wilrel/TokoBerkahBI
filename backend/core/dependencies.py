@@ -29,3 +29,22 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+
+# Peran yang boleh mengelola data toko (produk, stok, pembelian, import, laporan).
+MANAGE_ROLES = {models.RoleEnum.OWNER, models.RoleEnum.ADMIN, models.RoleEnum.MANAGER}
+# Peran yang boleh mengelola anggota tim.
+TEAM_ROLES = {models.RoleEnum.OWNER, models.RoleEnum.ADMIN}
+
+
+def require_member(db: Session, workspace_id: int, user: models.User, roles=None) -> models.WorkspaceMember:
+    """Pastikan user anggota workspace (dan punya salah satu `roles` bila diberikan)."""
+    member = db.query(models.WorkspaceMember).filter(
+        models.WorkspaceMember.workspace_id == workspace_id,
+        models.WorkspaceMember.user_id == user.id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    if roles is not None and member.role not in roles:
+        raise HTTPException(status_code=403, detail="Peran Anda tidak punya akses untuk tindakan ini")
+    return member

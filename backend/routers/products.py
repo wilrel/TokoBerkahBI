@@ -5,20 +5,14 @@ from typing import List
 import models
 import schemas
 from database import get_db
-from core.dependencies import get_current_user
+from core.dependencies import MANAGE_ROLES, get_current_user, require_member
 
 router = APIRouter(prefix="/api", tags=["products"])
 
 # --- Categories ---
 @router.post("/categories", response_model=schemas.CategoryResponse)
 def create_category(category: schemas.CategoryCreate, workspace_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
         
     db_category = models.Category(**category.model_dump(), workspace_id=workspace_id)
     db.add(db_category)
@@ -28,13 +22,7 @@ def create_category(category: schemas.CategoryCreate, workspace_id: int, db: Ses
 
 @router.get("/workspaces/{workspace_id}/categories", response_model=List[schemas.CategoryResponse])
 def get_categories(workspace_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user)
         
     categories = db.query(models.Category).filter(models.Category.workspace_id == workspace_id).all()
     return categories
@@ -43,13 +31,7 @@ def get_categories(workspace_id: int, db: Session = Depends(get_db), current_use
 # --- Products ---
 @router.post("/products", response_model=schemas.ProductResponse)
 def create_product(product: schemas.ProductCreate, workspace_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user, MANAGE_ROLES)
         
     # Check SKU unique in workspace
     existing_product = db.query(models.Product).filter(
@@ -83,13 +65,7 @@ def create_product(product: schemas.ProductCreate, workspace_id: int, db: Sessio
 
 @router.get("/workspaces/{workspace_id}/products", response_model=List[schemas.ProductResponse])
 def get_products(workspace_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user)
         
     products = db.query(models.Product).filter(models.Product.workspace_id == workspace_id).all()
     return products

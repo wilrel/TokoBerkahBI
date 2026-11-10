@@ -2,7 +2,7 @@ import { ChevronDown } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
-const control =
+export const control =
   'block w-full rounded-lg border border-line bg-surface text-sm text-ink shadow-sm placeholder:text-zinc-400 ' +
   'transition-colors hover:border-line-strong focus:border-accent focus:outline-none focus:ring-3 focus:ring-accent/15 ' +
   'disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-ink-subtle';

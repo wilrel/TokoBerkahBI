@@ -5,19 +5,13 @@ from typing import List
 import models
 import schemas
 from database import get_db
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, require_member
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}", tags=["transactions"])
 
 @router.post("/transactions", response_model=schemas.TransactionResponse)
 def create_transaction(workspace_id: int, transaction: schemas.TransactionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user)
         
     # Calculate totals, update stock, log movements
     total_amount = 0.0
@@ -86,13 +80,7 @@ def create_transaction(workspace_id: int, transaction: schemas.TransactionCreate
 
 @router.get("/transactions", response_model=List[schemas.TransactionResponse])
 def get_transactions(workspace_id: int, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    # Verify workspace membership
-    member = db.query(models.WorkspaceMember).filter(
-        models.WorkspaceMember.workspace_id == workspace_id,
-        models.WorkspaceMember.user_id == current_user.id
-    ).first()
-    if not member:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    require_member(db, workspace_id, current_user)
         
     transactions = db.query(models.Transaction).filter(
         models.Transaction.workspace_id == workspace_id
