@@ -3,7 +3,8 @@ node_modules/
 *.sqlite
 *.db
 backend/venv/
-backend/__pycache__/
+__pycache__/
+*.py[cod]
 backend/.pytest_cache/
 frontend/node_modules/
 backend/temp_imports/
