@@ -73,3 +73,16 @@ export type Workspace = {
   timezone: string;
   created_at: string;
 };
+
+export type Membership = { workspace_id: number; workspace_name: string; role: import('./roles').Role };
+
+export type Me = { id: number; email: string; name: string | null; memberships: Membership[] };
+
+export type Member = {
+  user_id: number;
+  email: string;
+  name: string | null;
+  role: import('./roles').Role;
+  joined_at: string;
+  new_account?: boolean;
+};
