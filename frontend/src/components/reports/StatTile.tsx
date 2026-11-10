@@ -1,38 +1,60 @@
-import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/feedback';
 import { formatPct } from '@/lib/format';
+import { cn } from '@/lib/cn';
 
 type Props = {
   label: string;
-  value: string;
+  value: ReactNode;
   /** Persentase perubahan vs periode sebelumnya. null = tidak ada pembanding. */
   change?: number | null;
-  hint?: string;
+  footnote?: ReactNode;
+  loading?: boolean;
 };
 
-export default function StatTile({ label, value, change, hint }: Props) {
-  const hasChange = change !== undefined;
+export default function StatTile({ label, value, change, footnote, loading }: Props) {
   const up = change != null && change > 0;
   const down = change != null && change < 0;
-  const Icon = up ? ArrowUpRight : down ? ArrowDownRight : Minus;
 
   return (
-    <div className="bg-white rounded-lg shadow border border-gray-200 p-5">
-      <p className="text-sm font-medium text-gray-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-gray-900 tabular-nums">{value}</p>
-      <div className="mt-2 flex items-center gap-1 text-xs text-gray-500 min-h-4">
-        {hasChange && (
-          <span
-            className={`inline-flex items-center font-medium ${
-              up ? 'text-emerald-700' : down ? 'text-red-700' : 'text-gray-500'
-            }`}
-          >
-            <Icon className="w-3.5 h-3.5" aria-hidden="true" />
-            {change == null ? 'Tidak ada pembanding' : `${up ? '+' : ''}${formatPct(change)}`}
-          </span>
-        )}
-        {hasChange && change != null && <span>vs periode sebelumnya</span>}
-        {hint && <span>{hint}</span>}
-      </div>
-    </div>
+    <Card className="p-5">
+      <p className="text-sm text-ink-subtle">{label}</p>
+      {loading ? (
+        <>
+          <Skeleton className="mt-3 h-7 w-36" />
+          <Skeleton className="mt-3 h-4 w-28" />
+        </>
+      ) : (
+        <>
+          <p className="num mt-2 text-[26px] leading-8 font-semibold tracking-tight text-ink">{value}</p>
+          <div className="mt-2 flex min-h-5 items-center gap-2 text-xs text-ink-subtle">
+            {change !== undefined &&
+              (change == null ? (
+                <span>Belum ada data pembanding</span>
+              ) : (
+                <>
+                  <span
+                    className={cn(
+                      'num inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-medium',
+                      up && 'bg-emerald-50 text-emerald-700',
+                      down && 'bg-red-50 text-red-700',
+                      !up && !down && 'bg-zinc-100 text-ink-muted',
+                    )}
+                  >
+                    {up && <ArrowUpRight className="size-3" aria-hidden="true" />}
+                    {down && <ArrowDownRight className="size-3" aria-hidden="true" />}
+                    {up ? '+' : ''}
+                    {formatPct(change)}
+                  </span>
+                  <span>dari periode sebelumnya</span>
+                </>
+              ))}
+            {footnote}
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
