@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, PackagePlus, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, PackagePlus, Plus, ScanLine, Trash2 } from 'lucide-react';
 import { createPurchase, errorMessage, getProducts, initAuth } from '@/lib/api';
 import { formatRupiah } from '@/lib/format';
 import type { Product } from '@/lib/types';
@@ -12,6 +12,7 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, EmptyState } from '@/components/ui/feedback';
 import { Page, PageHeader } from '@/components/ui/page';
 import { useToast } from '@/components/ui/toast';
+import BarcodeScanner from '@/components/BarcodeScanner';
 
 type Line = { key: number; product_id: number | ''; quantity: string; unit_cost: string };
 
@@ -26,6 +27,8 @@ export default function NewPurchasePage() {
   const [lines, setLines] = useState<Line[]>(() => [newLine()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [lastScan, setLastScan] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +47,24 @@ export default function NewPurchasePage() {
   }, []);
 
   const productById = new Map(products.map((p) => [p.id, p]));
+  /** Scan barang masuk: tambah baris baru, atau +1 bila produknya sudah ada di daftar. */
+  const onScan = (code: string) => {
+    const p = products.find((x) => x.sku.toLowerCase() === code.toLowerCase());
+    if (!p) {
+      toast({ tone: 'error', title: 'Barcode belum terdaftar', description: `Daftarkan ${code} di menu Produk terlebih dulu.` });
+      setLastScan(null);
+      return;
+    }
+    setLines((ls) => {
+      const existing = ls.find((l) => l.product_id === p.id);
+      if (existing) return ls.map((l) => (l === existing ? { ...l, quantity: String((Number(l.quantity) || 0) + 1) } : l));
+      const empty = ls.find((l) => l.product_id === '');
+      const line = { product_id: p.id, quantity: '1', unit_cost: String(p.current_hpp) };
+      return empty ? ls.map((l) => (l === empty ? { ...l, ...line } : l)) : [...ls, { ...newLine(), ...line }];
+    });
+    setLastScan(`${p.name} dicatat`);
+  };
+
   const update = (key: number, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const subtotal = (l: Line) => (Number(l.quantity) || 0) * (Number(l.unit_cost) || 0);
   const total = lines.reduce((a, l) => a + subtotal(l), 0);
@@ -93,9 +114,21 @@ export default function NewPurchasePage() {
             title="Barang"
             description="Harga beli per satuan, sebelum diskon"
             action={
-              <Button variant="secondary" size="sm" onClick={() => setLines((ls) => [...ls, newLine()])}>
-                <Plus /> Tambah baris
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setLastScan(null);
+                    setScanning(true);
+                  }}
+                >
+                  <ScanLine /> Scan
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => setLines((ls) => [...ls, newLine()])}>
+                  <Plus /> Tambah baris
+                </Button>
+              </>
             }
           />
 
@@ -180,6 +213,14 @@ export default function NewPurchasePage() {
           </div>
         </Card>
       </form>
+      <BarcodeScanner
+        open={scanning}
+        onClose={() => setScanning(false)}
+        onScan={onScan}
+        title="Scan barang masuk"
+        continuous
+        lastResult={lastScan}
+      />
     </Page>
   );
 }
