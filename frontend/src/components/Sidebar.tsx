@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 import {
   ArrowDownToLine,
   Boxes,
+  ChevronsUpDown,
+  LogOut,
   Store,
   FileBarChart2,
   FileUp,
@@ -18,6 +20,9 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { canAccess, roleLabel } from '@/lib/roles';
+import { initials, useAuth } from '@/components/auth';
+import { IconButton } from '@/components/ui/button';
 
 type NavItem = { name: string; href: string; icon: typeof LayoutGrid; match?: string };
 
@@ -90,7 +95,63 @@ function Brand() {
   );
 }
 
+function StoreCard() {
+  const { user, membership, switchStore } = useAuth();
+  const stores = user?.memberships ?? [];
+  return (
+    <div className="relative flex w-full items-center gap-2.5 rounded-lg border border-line bg-white px-2.5 py-2 shadow-[var(--shadow-card)]">
+      <Store className="size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] text-ink-subtle">Toko aktif</span>
+        <span className="block truncate text-sm font-medium text-ink">{membership?.workspace_name}</span>
+      </span>
+      {stores.length > 1 && (
+        <>
+          <ChevronsUpDown className="size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
+          {/* Select native transparan di atas kartu: mudah dipakai di HP maupun desktop. */}
+          <select
+            aria-label="Ganti toko"
+            value={membership?.workspace_id}
+            onChange={(e) => switchStore(Number(e.target.value))}
+            className="absolute inset-0 cursor-pointer opacity-0"
+          >
+            {stores.map((m) => (
+              <option key={m.workspace_id} value={m.workspace_id}>
+                {m.workspace_name}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+    </div>
+  );
+}
+
+function UserCard() {
+  const { user, role, logout } = useAuth();
+  if (!user) return null;
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2">
+      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[11px] font-semibold text-indigo-700">
+        {initials(user.name, user.email)}
+      </div>
+      <div className="min-w-0 flex-1 leading-tight">
+        <div className="truncate text-sm font-medium text-ink">{user.name || user.email}</div>
+        <div className="truncate text-xs text-ink-subtle">{role ? roleLabel(role) : ''}</div>
+      </div>
+      <IconButton aria-label="Keluar" title="Keluar" onClick={logout}>
+        <LogOut />
+      </IconButton>
+    </div>
+  );
+}
+
 function SidebarContent({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  const { role } = useAuth();
+  const visible = sections
+    .map((section) => ({ ...section, items: section.items.filter((item) => canAccess(role, item.href)) }))
+    .filter((section) => section.items.length > 0);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 items-center px-4">
@@ -98,17 +159,11 @@ function SidebarContent({ pathname, onNavigate }: { pathname: string; onNavigate
       </div>
 
       <div className="px-3">
-        <div className="flex w-full items-center gap-2.5 rounded-lg border border-line bg-white px-2.5 py-2 shadow-[var(--shadow-card)]">
-          <Store className="size-4 shrink-0 text-ink-subtle" aria-hidden="true" />
-          <span className="min-w-0">
-            <span className="block text-[11px] text-ink-subtle">Toko aktif</span>
-            <span className="block truncate text-sm font-medium text-ink">Toko Berkah Jaya</span>
-          </span>
-        </div>
+        <StoreCard />
       </div>
 
       <nav className="mt-4 flex-1 space-y-5 overflow-y-auto px-3 pb-4" aria-label="Navigasi utama">
-        {sections.map((section) => (
+        {visible.map((section) => (
           <div key={section.label}>
             <div className="mb-1 px-2.5 text-[11px] font-medium tracking-wide text-ink-subtle uppercase">{section.label}</div>
             <div className="space-y-0.5">
@@ -121,14 +176,8 @@ function SidebarContent({ pathname, onNavigate }: { pathname: string; onNavigate
       </nav>
 
       <div className="space-y-0.5 border-t border-line px-3 py-3">
-        <NavLink item={footerItem} pathname={pathname} onNavigate={onNavigate} />
-        <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2">
-          <div className="flex size-7 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">A</div>
-          <div className="min-w-0 leading-tight">
-            <div className="truncate text-sm font-medium text-ink">Admin</div>
-            <div className="truncate text-xs text-ink-subtle">admin@toko.com</div>
-          </div>
-        </div>
+        {canAccess(role, footerItem.href) && <NavLink item={footerItem} pathname={pathname} onNavigate={onNavigate} />}
+        <UserCard />
       </div>
     </div>
   );
