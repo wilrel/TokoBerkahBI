@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth, workspaces, products, transactions, imports, purchases, inventory
+from routers import auth, workspaces, products, transactions, imports, purchases, inventory, reports
 
 app = FastAPI(
     title="Platform BI Retail",
@@ -24,6 +24,7 @@ app.include_router(transactions.router)
 app.include_router(imports.router)
 app.include_router(purchases.router)
 app.include_router(inventory.router)
+app.include_router(reports.router)
 
 @app.get("/")
 def read_root():
