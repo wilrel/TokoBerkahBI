@@ -8,11 +8,13 @@ import {
   Package, 
   ListOrdered,
   Users,
-  Settings
+  Settings,
+  FileBarChart
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { name: 'Laporan Laba Rugi', href: '/reports/profit-loss', icon: FileBarChart },
   { name: 'POS Kasir', href: '/transactions/new', icon: ShoppingCart },
   { name: 'Products', href: '/products', icon: Package },
   { name: 'Import Data', href: '/imports', icon: ListOrdered },
