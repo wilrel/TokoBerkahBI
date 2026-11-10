@@ -49,7 +49,8 @@ alembic upgrade head
 Lalu isi data awal (akun `admin@toko.com` / `password` dan beberapa produk contoh):
 
 ```bash
-python seed.py && python seed_products.py
+python seed.py
+python seed_products.py
 ```
 
 Jalankan API di http://localhost:8000 (dokumentasi di `/docs`):
