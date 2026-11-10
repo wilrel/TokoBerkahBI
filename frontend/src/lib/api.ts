@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000/api';
+// Default: lewat proxy Next.js (lihat next.config.ts). Bisa diganti ke URL API langsung.
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api';
 
 export const WORKSPACE_ID = 1;
 
