@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import { ToastProvider } from "@/components/ui/toast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,8 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Platform BI Retail",
-  description: "SaaS Business Intelligence untuk Toko Retail",
+  title: {
+    default: "Toko Berkah BI",
+    template: "%s · Toko Berkah BI",
+  },
+  description: "Kasir, stok, dan laporan untuk toko retail dan sembako.",
 };
 
 export default function RootLayout({
@@ -24,12 +28,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full bg-gray-50 antialiased`} suppressHydrationWarning>
-      <body className="h-full flex overflow-hidden" suppressHydrationWarning>
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+    <html lang="id" className={`${geistSans.variable} ${geistMono.variable} h-full`} suppressHydrationWarning>
+      <body className="flex h-full overflow-hidden" suppressHydrationWarning>
+        <ToastProvider>
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto pt-14 lg:pt-0">{children}</main>
+        </ToastProvider>
       </body>
     </html>
   );
